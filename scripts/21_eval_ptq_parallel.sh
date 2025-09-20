@@ -1,0 +1,22 @@
+torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
+--input_model $1 \
+--do_train False \
+--do_eval True \
+--per_device_eval_batch_size 1 \
+--model_max_length 2048 \
+--fp16 False \
+--bf16 True \
+--save_safetensors False \
+--w_bits $2 \
+--a_bits $3 \
+--k_bits $4 \
+--v_bits $4 \
+--k_groupsize 128 \
+--v_groupsize 128 \
+--w_clip \
+--a_asym \
+--k_asym \
+--v_asym \
+--lm_eval_dat "boolq" \
+--eval_out_path /home/jhkcool97/SpinQuant/Results/Zeroshot/BoolQ/W4A4KV4/W,A:Row,KV:head/RTN/Result.txt \
+--w_rtn

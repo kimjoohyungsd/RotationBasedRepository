@@ -1,0 +1,9 @@
+{
+  "fsdp_transformer_layer_cls_to_wrap": ["LlamaDecoderLayer"],
+  "offload_params": true,
+  "offload_optimizer": true,
+  "state_dict_type": "full",
+  "cpu_offload": true,
+  "use_orig_params": true,
+  "fsdp_sharding_strategy": 1
+}
