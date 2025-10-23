@@ -48,7 +48,10 @@ def ptq_model(args, model, model_args=None):
         if not args.offline:
             print("Applying Online Transform")
             apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함
- 
+
+        if args.online_r2:
+            print("Applying QuaRot based R2 rotation")
+
         utils.cleanup_memory(verbos=True)
 
         quant_utils.add_actquant(model)  # Add Activation Wrapper to the model

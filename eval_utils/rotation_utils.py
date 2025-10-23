@@ -133,11 +133,13 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
     v_proj = layer.self_attn.v_proj
     o_proj = layer.self_attn.o_proj
 
-    apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=R2)
-
+    
+    # QuaRot 방식과 동일하게 R2 방식을 적용하면 diagonal하게 Randomized한 Hadamard rotation을 적용할 수가 없다 => 
     if (online_r2):
-        apply_exact_had_to_linear(o_proj, had_dim=-1, Dim0=False, Matrix=R2)
+        apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=None)
+        apply_exact_had_to_linear(o_proj, had_dim=-1, Dim0=False, Matrix=None)
     else:
+        apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=R2)
         apply_exact_had_to_linear(o_proj, had_dim=head_dim, Dim0=False, Matrix=R2)
 
 

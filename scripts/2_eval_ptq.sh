@@ -65,6 +65,9 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 
 
 # Option 2 (Only with Model)
+export NCCL_P2P_DISABLE="1"
+export NCCL_IB_DISABLE="1"
+
 torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --input_model $1 \
 --do_train False \
@@ -82,23 +85,24 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --v_groupsize 128 \
 --w_groupsize -1 \
 --a_groupsize -1 \
+--a_asym \
 --k_asym \
 --v_asym \
 --wikitext2 \
 --w_clip \
---w_rtn \
 --rotate \
---diagonal \
---diagonal_size 512 \
+--w_rtn \
+# --diagonal \
+# --diagonal_size 512 \
 # --offline  \
-
+# --online_r2 \
 # --smooth_quant \
 # --alpha 0.65 \
 # --attention \
 
 
 
-# --a_asym \
+
 
 
 
