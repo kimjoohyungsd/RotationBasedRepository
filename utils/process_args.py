@@ -51,6 +51,18 @@ def parser_gen():
         "--seed", type=int, default=0, help="Random Seed for HuggingFace and PyTorch"
     )
 
+    # Smoothing Arguments
+    parser.add_argument(
+        "--smooth_quant",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Apply Smoothing Technique as implemented in Smoothquant paper",
+    )
+    parser.add_argument('--scales-output-path', type=str, default='./act_scales/',
+                        help='where to save the act scales')
+    parser.add_argument("--alpha", type=float, default=0.6,help='migration strength between activation and weight')
+    parser.add_argument("--attention",action=argparse.BooleanOptionalAction,default=False,
+                        help='Whether to apply smooting technique of attention output vector')
     # Rotation Arguments
     parser.add_argument(
         "--rotate",
@@ -60,6 +72,7 @@ def parser_gen():
                         out-projection. Note that this does not apply rotation to the K/Q and they will be rotated
                         if we want to quantize the Keys""",
     )
+    
     parser.add_argument(
         '--diagonal',
         action=argparse.BooleanOptionalAction,
@@ -93,6 +106,13 @@ def parser_gen():
     #     default=True,
     #     help="Apply inverse of R4 matrix to FFN_down matrix"
     # )
+    parser.add_argument(
+        '--online_r2', 
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Apply Online R2 as mentioned in QuaRot paper"
+    ),
+
     parser.add_argument(
         "--fp32_had",
         action=argparse.BooleanOptionalAction,
@@ -277,7 +297,9 @@ def parser_gen():
     parser.add_argument(
         "--eval_out_path", type=str, default=None, help="path to record result for evaluation"
     )
-
+    parser.add_argument(
+        "--stats_path", type=str, default=None, help="path to record stats for Activation"
+    )
      # WandB Arguments
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument('--wandb_id', type=str, default=None)

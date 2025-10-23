@@ -52,34 +52,38 @@ def get_orthogonal_matrix(size, mode, device="cuda"):
         raise ValueError(f"Unknown mode {mode}")
 
 
-def rotate_embeddings(model, R1: torch.Tensor,diagonal) -> None:
+def rotate_embeddings(model, R1: torch.Tensor, diagonal) -> None:
     # Rotate the embeddings.
     for W in [model.model.embed_tokens]:
         if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],False,R1)
-        dtype = W.weight.data.dtype
-        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
+            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=False,Matrix=R1) # W @ R1 
+        else:
+            dtype = W.weight.data.dtype
+            W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
 
 
-def rotate_attention_inputs(layer, R1,diagonal) -> None:
+def rotate_attention_inputs(layer, R1, diagonal) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
     for W in [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj]:
         if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],False,R1)
-        dtype = W.weight.dtype
-        W_ = W.weight.to(device="cuda", dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
+            apply_exact_had_to_linear(W,had_dim = R1.shape[0],Dim0=False,Matrix=R1) # W @ R1
+        else: 
+            dtype = W.weight.dtype
+            W_ = W.weight.to(device="cuda", dtype=torch.float64)
+            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
 
 
-def rotate_attention_output(layer, R1,diagonal) -> None:
+def rotate_attention_output(layer, R1, diagonal) -> None:
     # Rotate output matrix of the self-attention layer.
     W = layer.self_attn.o_proj
     if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],True,R1.T)
-    dtype = W.weight.data.dtype
-    W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-    W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
+            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=True,Matrix=R1) # (W.T@R1)T
+    else:
+        dtype = W.weight.data.dtype
+        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+        W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
+        
     if W.bias is not None:
         b = W.bias.data.to(device="cuda", dtype=torch.float64)
         W.bias.data = torch.matmul(R1.T, b).to(device="cpu", dtype=dtype)
@@ -90,20 +94,22 @@ def rotate_mlp_input(layer, R1,diagonal):
     mlp_inputs = [layer.mlp.up_proj, layer.mlp.gate_proj]
     for W in mlp_inputs:
         if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],False,R1)
-        dtype = W.weight.dtype
-        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
+            apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=False,Matrix=R1)
+        else: 
+            dtype = W.weight.dtype
+            W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
 
 
 def rotate_mlp_output(layer, R1, diagonal):
     # Rotate the MLP output weights and bias.
     W = layer.mlp.down_proj
     if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],True,R1.T)
-    dtype = W.weight.data.dtype
-    W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-    W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
+            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=True,Matrix=R1) # (W1.T @ R1)T => R1.T @ W1
+    else:
+        dtype = W.weight.data.dtype
+        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+        W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
     # apply_exact_had_to_linear(
     #     W, had_dim=-1, output=False,transpose=True
     # )  # apply exact (inverse) hadamard on the weights of mlp output (Hadamard Matrix를 정확하게 구현하자)
@@ -116,18 +122,23 @@ def rotate_head(model, R1: torch.Tensor,diagonal) -> None:
     # Rotate the head.
     W = model.lm_head
     if diagonal:
-            apply_exact_had_to_linear(W,R1.shape[0],False,R1)
-    dtype = W.weight.data.dtype
-    W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-    W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
+            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=False,Matrix=R1)
+    else:
+        dtype = W.weight.data.dtype
+        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+        W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
 
 
-def rotate_ov_proj(layer, head_num, head_dim, R2=None):
+def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
     v_proj = layer.self_attn.v_proj
     o_proj = layer.self_attn.o_proj
 
-    apply_exact_had_to_linear(v_proj, had_dim=head_dim, output=True, Matrix=R2)
-    apply_exact_had_to_linear(o_proj, had_dim=head_dim, output=False, Matrix=R2)
+    apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=R2)
+
+    if (online_r2):
+        apply_exact_had_to_linear(o_proj, had_dim=-1, Dim0=False, Matrix=R2)
+    else:
+        apply_exact_had_to_linear(o_proj, had_dim=head_dim, Dim0=False, Matrix=R2)
 
 
 @torch.inference_mode()
@@ -145,24 +156,30 @@ def rotate_model(model, args):
     head_dim = model_dim // num_heads
 
     # Rotation을 함에 있어서도 Diagonal 한 특성을 고려해서 Rotation을 진행한
-    rotate_embeddings(model, R1,args.diagonal) 
-    rotate_head(model, R1,args.diagonal)
+    rotate_embeddings(model,R1,args.diagonal) 
+    rotate_head(model,R1,args.diagonal)
     utils.cleanup_memory()
     layers = [layer for layer in model.model.layers]
     for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Rotating")):
-        if args.optimized_rotation_path is not None:
-            key = f"model.layers.{idx}.self_attn.R2"
-            R2 = torch.load(R_cpk)[key].cuda().to(torch.float64)
-        elif args.diagonal:
-            R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
-            rotate_ov_proj(layers[idx], num_heads, args.diagonal_size, R2=R2)
+        
+        if args.diagonal:
+            if args.diagonal_size > head_dim:
+                R2 = get_orthogonal_matrix(head_dim,args.rotate_mode)
+                rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=args.online_r2)
+            else:
+                R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
+                rotate_ov_proj(layers[idx], num_heads, args.diagonal_size, R2=R2,online_r2=args.online_r2)
         else:
             R2 = get_orthogonal_matrix(head_dim, args.rotate_mode)
-            rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2)
-        rotate_attention_inputs(layers[idx], R1)
-        rotate_attention_output(layers[idx], R1)
-        rotate_mlp_input(layers[idx], R1)
-        rotate_mlp_output(layers[idx], R1)
+            if args.optimized_rotation_path is not None:
+                key = f"model.layers.{idx}.self_attn.R2"
+                R2 = torch.load(R_cpk)[key].cuda().to(torch.float64)
+            rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=args.online_r2)
+
+        rotate_attention_inputs(layers[idx], R1, args.diagonal)
+        rotate_attention_output(layers[idx], R1, args.diagonal)
+        rotate_mlp_input(layers[idx], R1, args.diagonal)
+        rotate_mlp_output(layers[idx], R1, args.diagonal)
         # rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2)
 
 

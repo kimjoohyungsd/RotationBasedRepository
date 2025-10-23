@@ -220,6 +220,7 @@ class ActQuantWrapper(torch.nn.Module):
         self.K = 1
         self.online_full_had = False
         self.online_partial_had = False
+        self.online_diagonal_had = False
         self.had_dim = 0
         self.fp32_had = False
 
@@ -248,6 +249,7 @@ class ActQuantWrapper(torch.nn.Module):
         # Rotate, if needed
         if self.online_full_had:
             if self.fp32_had:  # Full Hadamard in FP32
+                
                 x = hadamard_utils.matmul_hadU_cuda(x.float(), self.had_K, self.K).to(
                     x_dtype
                 )
@@ -275,6 +277,25 @@ class ActQuantWrapper(torch.nn.Module):
                     self.had_K.to(x.dtype)
                     @ x.reshape(-1, init_shape[-1] // self.had_dim, self.had_dim)
                 ) / math.sqrt(init_shape[-1] // self.had_dim)
+
+            if self.fp32_had:
+                x = x.to(x_dtype)
+            x = x.reshape(init_shape)
+        
+        elif self.online_diagonal_had:
+            if self.fp32_had:
+                x = x.float()
+
+            init_shape = x.shape
+            if self.K == 1:
+                x = (
+                    HadamardTransform.apply(
+                        x.reshape(
+                            -1, init_shape[-1] // self.had_dim, self.had_dim # [batch,Dim_group,had_dim] => [batch,had_dim,Dim_group]
+                        )
+                    )
+                    / math.sqrt(self.had_dim)
+                )
 
             if self.fp32_had:
                 x = x.to(x_dtype)

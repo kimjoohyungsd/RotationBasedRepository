@@ -75,13 +75,15 @@ def train() -> None:
         if ptq_args.w_bits<16:
             log.info("Use GPTQ method in Weight Quantization")
 
-    log.info("Quantization bits W: {},A: {}, KV: {}".format(ptq_args.w_bits,ptq_args.a_bits,ptq_args.k_bits))
+    print("Quantization bits W: {},A: {}, KV: {}".format(ptq_args.w_bits,ptq_args.a_bits,ptq_args.k_bits))
 
     if ptq_args.w_groupsize != -1:
-        log.info("Quantization group size W: {},A:{}".format(ptq_args.w_groupsize,ptq_args.a_groupsize))
+        print("Quantization group size W: {},A:{}".format(ptq_args.w_groupsize,ptq_args.a_groupsize))
     else:
-        log.info("Quantization group size W: per-channel,A:per-token")
+        print("Quantization group size W: per-channel,A:per-token")
     
+    if ptq_args.diagonal:
+        print("Diagonal size : {}".format(ptq_args.diagonal_size))
     if ptq_args.k_groupsize != -1:
         log.info("Quantization group size KV: {}".format(ptq_args.k_groupsize))
     else:

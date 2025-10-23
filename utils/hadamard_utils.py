@@ -83,18 +83,19 @@ def get_hadK(n, transpose=False):
     return hadK, K
 
 
-def matmul_hadU(X, transpose=False):
+def matmul_hadU(X, transpose=False): # X Hadamard Transform을 적용할 대상
     n = X.shape[-1]
-    hadK, K = get_hadK(n, transpose)
-    input = X.clone().view(-1, n, 1)
-    output = input.clone()
-    while input.shape[1] > K:
-        input = input.view(input.shape[0], input.shape[1] // 2, 2, input.shape[2])
-        output = output.view(input.shape)
+    hadK, K = get_hadK(n, transpose) # Walsh hadamard Matrix가 필요한지? hadk= walsh hadamard가 아닌 Matirx, K = 해당 matrix의 Shape
+    input = X.clone().view(-1, n, 1) # input.shape [X.shape[0],n,1]
+    output = input.clone() # 
+    while input.shape[1] > K: # input의 Fast Hadamard Transform을 바로 적용해야 하는 경우
+        input = input.view(input.shape[0], input.shape[1] // 2, 2, input.shape[2]) # [X.shape[0], X.shape[1] // 2 ,2, 1] 
+        output = output.view(input.shape) # [X.shape[0], x.shape[1] // 2 , 2 ,1 ]
+        # Step1: Fast Hadamard Transform을 적용하는 구간 
         output[:, :, 0, :] = input[:, :, 0, :] + input[:, :, 1, :]
         output[:, :, 1, :] = input[:, :, 0, :] - input[:, :, 1, :]
-        output = output.view(input.shape[0], input.shape[1], -1)
-        (input, output) = (output, input)
+        output = output.view(input.shape[0], input.shape[1], -1) # [input_shape]
+        (input, output) = (output, input) # input.shape[1] Dim 1이 지원하는 Fast Hadamard Transform을 지원하는 쌍의 개수 input.shape[3] 지원되는 한 pair의 각 Vector의 길이
     del output
 
     if K > 1:
@@ -115,7 +116,7 @@ def random_hadamard_matrix(size, device):
     # See https://cornell-relaxml.github.io/quip-sharp/ , Section "Randomized Hadamard Transformation"
     Q = torch.randint(low=0, high=2, size=(size,)).to(torch.float64)
     Q = Q * 2 - 1
-    Q = torch.diag(Q)
+    Q = torch.diag(Q) # diag(sign)
     return matmul_hadU(Q).to(device)
 
 
@@ -130,11 +131,11 @@ def matmul_hadU_cuda(X, hadK, K, transpose=False):
     if K == 1:
         return HadamardTransform.apply(X.contiguous()) / torch.tensor(n).sqrt()
     if transpose: # Transpose를 구현하는 함수
-        input=X.view(-1,K,n//K)
+        input=X.view(-1,K,n//K) # [batch,172,64]
         input=HadamardTransform.apply(input.contiguous())  / torch.tensor(n).sqrt() #step1: 동일한 [64,64의] Walsh Hadamard 행렬을 적용한다
         hadK = hadK.contiguous()
         # hadKinv = torch.linalg.inv(hadK).to(input.device).to(input.dtype) * torch.tensor(K).sqrt() # Step2: hadK행렬의 inverse 행렬을 구한다
-        input = hadK.T.contiguous().to(input.device).to(input.dtype) @ input
+        input = hadK.T.contiguous().to(input.device).to(input.dtype) @ input # [172,172] @ [batch,172,64] => [batch,172,172] 
         # input = hadKinv @ input # Step3 행렬의 곲을 진행한다
         return input.reshape(X.shape)
     else:
@@ -147,10 +148,22 @@ def matmul_hadU_cuda(X, hadK, K, transpose=False):
 def matmul_hadUt_cuda(X, hadK, K):
     return matmul_hadU_cuda(X, hadK, K, transpose=True)
 
-
-def apply_exact_had_to_linear(module, had_dim=-1, output=False, Matrix=None,transpose=False):
+def _get_module_dims(module: torch.nn.Module) -> tuple[int, int]:
+    """
+    Returns (dim0, dim1):
+      - For nn.Linear: (out_features, in_features)
+      - For nn.Embedding: (num_embeddings, embedding_dim)
+    """
+    if isinstance(module, torch.nn.Linear):
+        return  module.out_features, module.in_features
+    elif isinstance(module, torch.nn.Embedding):
+        return module.num_embeddings, module.embedding_dim, 
+    else:
+        raise TypeError(f"Unsupported module type: {type(module)}")
+    
+def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transpose=False):
     assert isinstance(module, torch.nn.Linear) or isinstance(module,torch.nn.Embedding)
-    in_features, out_features = module.in_features, module.out_features
+    dim0, dim1 = _get_module_dims(module)
 
     if had_dim != -1:
         assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
@@ -162,26 +175,28 @@ def apply_exact_had_to_linear(module, had_dim=-1, output=False, Matrix=None,tran
     W_ = W_.float().cuda()
 
     if had_dim == -1:
-        if output:
-            had_K, K = get_hadK(out_features,transpose)
+        if Dim0:
+            had_K, K = get_hadK(dim0,transpose)
             W_ = matmul_hadU_cuda(W_.t(), had_K, K,transpose).t()
-        if not output:
-            had_K, K = get_hadK(in_features)
-            W_ = matmul_hadU_cuda(W_, had_K, K,transpose)
+        if not Dim0:
+            had_K, K = get_hadK(dim1)
+            W_ = matmul_hadU_cuda(W_, had_K, K,transpose) # Dim1
     else:
         hadK = hadamard_matrix(had_dim, "cuda").to(torch.float64)
         if Matrix is not None:
             hadK = Matrix.to(torch.float64)
-        if output: # V를 Embedding하는 Weight의 경우
+        if Dim0: # V를 Embedding하는 Weight의 경우
             W_ = W_.t() # Transpose => Shape [input, output]
             transposed_shape = W_.shape # 
             temp = W_.reshape(-1, transposed_shape[-1] // had_dim, had_dim) # Reshape => [input,output/had_dim,had_dim]
             temp = temp.to(torch.float64) @ hadK # Batched Mat Mul => [input,output/had_dim, had_dim]
+            # print(temp.shape)
             W_ = temp.reshape(transposed_shape).t() # Transposed Shape => [Output, input]
         else:
             init_shape = W_.shape
             temp = W_.reshape(-1, init_shape[-1] // had_dim, had_dim)
             temp = temp.to(torch.float64) @ hadK
+            # print(temp.shape)
             W_ = temp.reshape(init_shape)
     module.weight.data = W_.to(device=dev, dtype=dtype)
 

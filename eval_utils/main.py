@@ -11,9 +11,10 @@
 import torch
 import transformers
 
+
 from train_utils import apply_r3_r4
 from eval_utils import gptq_utils, rotation_utils
-from utils import data_utils, fuse_norm_utils, hadamard_utils, quant_utils, utils
+from utils import data_utils, fuse_norm_utils, hadamard_utils, quant_utils, utils,smooth_quant
 from utils.convert_to_executorch import (
     sanitize_checkpoint_from_spinquant,
     write_model_llama,
@@ -24,22 +25,56 @@ def ptq_model(args, model, model_args=None):
     transformers.set_seed(args.seed)
     model.eval()
 
+    # Smoothing Applied if requested
+    if args.smooth_quant:
+        args.act_scales = f"./act_scales/{model_args.input_model.split('/')[-1]}.pt"
+        print("Smoothing Applied")
+        print(f"smoothing Alpha: {args.alpha}")
+        if args.attention:
+            print("Smoothing Applied to Attention")
+        act_scales = torch.load(args.act_scales)
+        smooth_quant.smoothing(model,args,act_scales)
+
     # Rotate the weights
     if args.rotate:
+        
+        if not args.offline:
+            print("Applying Online Transform")
+        else:
+            print("Applying Offline Transform") 
+
         fuse_norm_utils.fuse_layer_norms(model) #
         rotation_utils.rotate_model(model, args)
         if not args.offline:
-            apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함 
+            print("Applying Online Transform")
+            apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함
+ 
         utils.cleanup_memory(verbos=True)
 
         quant_utils.add_actquant(model)  # Add Activation Wrapper to the model
         qlayers = quant_utils.find_qlayers(model) # Quantized 된 layer의 dictionary format을 만든
         for name in qlayers:
             if "down_proj" in name and not args.offline:
-                had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
-                qlayers[name].online_full_had = True
+                if not args.diagonal:
+                    had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
+                    qlayers[name].online_full_had = True
+                    qlayers[name].had_K = had_K
+                    qlayers[name].K = K
+                    qlayers[name].fp32_had = args.fp32_had
+                else:
+                    had_K, K = hadamard_utils.get_hadK(args.diagonal_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
+                    qlayers[name].online_diagonal_had = True
+                    qlayers[name].had_K = had_K
+                    qlayers[name].K = K
+                    qlayers[name].had_dim = args.diagonal_size
+                    qlayers[name].fp32_had = args.fp32_had
+
+            if 'o_proj' in name and args.online_r2:
+                had_K, K = hadamard_utils.get_hadK(model.config.num_attention_heads)
+                qlayers[name].online_partial_had = True
                 qlayers[name].had_K = had_K
                 qlayers[name].K = K
+                qlayers[name].had_dim = model.config.hidden_size//model.config.num_attention_heads
                 qlayers[name].fp32_had = args.fp32_had
     else:
         # quant_utils.add_actquant(model)  # Add Activation Wrapper to the model

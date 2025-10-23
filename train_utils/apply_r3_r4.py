@@ -25,12 +25,15 @@ from scipy.linalg import hadamard
 import numpy as np
 
 
-def R4_rotate_down_proj_weights(layer):
+def R4_rotate_down_proj_weights(layer,args):
     # Rotate the MLP output weights and bias.
     W = layer.mlp.down_proj
-    apply_exact_had_to_linear(
-        W, had_dim=-1, output=False
-    )  # apply exact (inverse) hadamard on the weights of mlp output
+    if args.diagonal:
+        apply_exact_had_to_linear(W,had_dim=args.diagonal_size,Dim0=False)
+    else:
+        apply_exact_had_to_linear(
+        W, had_dim=-1, Dim0=False
+        )  # apply exact (inverse) hadamard on the weights of mlp output
 
 
 @torch.inference_mode()
@@ -83,7 +86,7 @@ def rotate_model(model, args):
 
     #     print("R4 matrix fusion completed successfully!")
         
-        R4_rotate_down_proj_weights(layers[idx])
+        R4_rotate_down_proj_weights(layers[idx],args)
 
 
 class QKRotationWrapper(torch.nn.Module):

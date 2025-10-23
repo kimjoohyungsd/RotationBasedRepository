@@ -80,24 +80,36 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --v_bits $4 \
 --k_groupsize 128 \
 --v_groupsize 128 \
+--w_groupsize -1 \
+--a_groupsize -1 \
 --k_asym \
 --v_asym \
---w_rtn \
 --wikitext2 \
 --w_clip \
---w_groupsize 32 \
---a_groupsize 32 \
+--w_rtn \
 --rotate \
 --diagonal \
---diagonal_size 32 \
---offline
+--diagonal_size 512 \
+# --offline  \
+
+# --smooth_quant \
+# --alpha 0.65 \
+# --attention \
+
+
+
 # --a_asym \
+
+
+
 # --optimized_rotation_path /home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin
 
 
 
 # --lm_eval_dat "arc_challenge" \
 # --eval_out_path /home/jhkcool97/SpinQuant/Results/Zeroshot/Arc_challenge/W4A4KV4/W,A:32,KV:head/RTN/Result.txt \
+
+
 
 
 
