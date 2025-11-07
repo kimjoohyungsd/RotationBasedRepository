@@ -86,6 +86,12 @@ def parser_gen():
         help = "Size of block diagonal block is better if this size is a power of 2",
     )
     parser.add_argument(
+        '--diagonal_num',
+        type=int,
+        default = -1,
+        help = "Number of block diagonal blocks if rotation matrix is applied in block diagonal method",
+    )
+    parser.add_argument(
         "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]
     )
     parser.add_argument(
@@ -106,6 +112,24 @@ def parser_gen():
     #     default=True,
     #     help="Apply inverse of R4 matrix to FFN_down matrix"
     # )
+    parser.add_argument(
+        '--deactivate_r1',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Deactivate R1 rotation Matrix mentioned in the paper"
+    )
+    parser.add_argument(
+        '--deactivate_r2',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Deactivate R2 rotation Matrix mentioned in the SpinQuant paper"
+    )
+    parser.add_argument(
+        '--only_r4',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Applying only R4 rotation Matrix for testing"
+    )
     parser.add_argument(
         '--online_r2', 
         action=argparse.BooleanOptionalAction,
@@ -171,6 +195,9 @@ def parser_gen():
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Quantize the weights using RtN. If the w_bits < 16 and this flag is not set, we use GPTQ",
+    )
+    parser.add_argument(
+        "--w_auto_clip"
     )
     parser.add_argument(
         "--w_clip",

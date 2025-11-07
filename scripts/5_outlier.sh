@@ -1,3 +1,6 @@
+export NCCL_P2P_DISABLE="1"
+export NCCL_IB_DISABLE="1"
+
 python outlier_check.py \
 --input_model $1 \
 --do_train False \
@@ -8,10 +11,24 @@ python outlier_check.py \
 --bf16 False \
 --save_safetensors False \
 --distribution_dir /home/jhkcool97/Model_distribution/Llama-2-7b \
+--capture_layer_io \
 --weight_check \
+--draw \
 --rotate \
-# --capture_layer_io \
-# --draw \
+--smooth_quant \
+--alpha 0.60 \
+--attention \
+# --diagonal \
+# --diagonal_size 128 \
+
+
+
+
+
+
+
+
+
 
 
 

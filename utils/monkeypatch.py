@@ -41,10 +41,10 @@ def add_wrapper_after_function_call_in_method(
     Only calls directly in the method are affected. Calls by other functions called in the method are not affected.
     """
 
-    original_method = getattr(module, method_name).__func__ ## forward 함수의 원래 함수 객체
-    method_globals = dict(original_method.__globals__) # forward 함수의 전역 table로 불리는 함수들
-    wrapper = wrapper_fn(method_globals[function_name]) # forward 함수의 전역 table에서 apply_rotary_embd이라 불리는 함수에 원본 point를 QK rotation wrapper로 wrapping 한다  
-    method_globals[function_name] = wrapper 
-    new_method = copy_func_with_new_globals(original_method, globals=method_globals)
-    setattr(module, method_name, new_method.__get__(module)) # forward module에 
+    original_method = getattr(module, method_name).__func__ ## Step1: original forward method값을 가지고 온다
+    method_globals = dict(original_method.__globals__) # forwardmethod가 가지고 올 수 있는 모든 namespace의 table들을 가지고 온다
+    wrapper = wrapper_fn(method_globals[function_name]) # QKrotationWrapper module class 안에서 function_name을 argument로 받아 Initialize 한다  
+    method_globals[function_name] = wrapper # forward pass method의 globalnamespace에 Apply_rotary_positonal에 해당하는 table을 QKrotationWrapper의  Instance 로 바꾼다
+    new_method = copy_func_with_new_globals(original_method, globals=method_globals) # 변화된 forward pass 함수를 생성
+    setattr(module, method_name, new_method.__get__(module)) # 일반 생성된 python 함수로 self_attn.forward 함수가 이 함수에 binding됨
     return wrapper

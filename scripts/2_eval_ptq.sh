@@ -83,22 +83,34 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --v_bits $4 \
 --k_groupsize 128 \
 --v_groupsize 128 \
---w_groupsize -1 \
---a_groupsize -1 \
+--w_groupsize 128 \
+--a_groupsize 128 \
 --a_asym \
 --k_asym \
 --v_asym \
---wikitext2 \
 --w_clip \
---rotate \
 --w_rtn \
+--lm_eval \
+--lm_eval_batch_size 4 \
+--tasks "piqa" \
+--wandb \
+--wandb_project "rotation-based-evaluation" \
+--wandb_id "jhk971114" \
+# --wikitext2 \
+# --rotate \
+# --smooth_quant \
+# --alpha 0.60 \
+# --attention \
+
+# --a_clip_ratio 0.6
 # --diagonal \
-# --diagonal_size 512 \
+# --diagonal_size 128 \
+
+# --deactivate_r1 \
+
 # --offline  \
 # --online_r2 \
-# --smooth_quant \
-# --alpha 0.65 \
-# --attention \
+
 
 
 

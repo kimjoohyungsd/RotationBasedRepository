@@ -1,0 +1,38 @@
+Traceback (most recent call last):
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 203, in <module>
+    train()
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 150, in train
+    wandb.log(f"LM-eval tasks: {ptq_args.tasks}")
+  File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 397, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 455, in wrapper_fn
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 442, in wrapper
+    return func(self, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 2025, in log
+    self._log(data=data, step=step, commit=commit)
+  File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 1731, in _log
+    raise TypeError("wandb.log must be passed a dictionary")
+TypeError: wandb.log must be passed a dictionary
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 203, in <module>
+[rank0]:     train()
+[rank0]:   File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 150, in train
+[rank0]:     wandb.log(f"LM-eval tasks: {ptq_args.tasks}")
+[rank0]:   File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 397, in wrapper
+[rank0]:     return func(self, *args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 455, in wrapper_fn
+[rank0]:     return func(self, *args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 442, in wrapper
+[rank0]:     return func(self, *args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 2025, in log
+[rank0]:     self._log(data=data, step=step, commit=commit)
+[rank0]:   File "/home/jhkcool97/anaconda3/envs/SpecInfer/lib/python3.11/site-packages/wandb/sdk/wandb_run.py", line 1731, in _log
+[rank0]:     raise TypeError("wandb.log must be passed a dictionary")
+[rank0]: TypeError: wandb.log must be passed a dictionary

@@ -1,0 +1,1 @@
+{"w_bits":16,"k_groupsize":128,"w_groupsize":128,"_timestamp":1.7624742622719982e+09,"_wandb":{"runtime":27},"batch_size":4,"model":"meta-llama/Llama-2-7b-hf","seed":0,"k_bits":16,"_step":0,"a_groupsize":128,"tasks":["piqa"],"a_bits":16,"_runtime":27}

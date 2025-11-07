@@ -1,0 +1,4 @@
+WARNING:lm_eval.models.huggingface:`pretrained` model kwarg is not of type `str`. Many other model arguments may be ignored. Please do not launch via accelerate or use `parallelize=True` if passing an existing model this way.
+WARNING:lm_eval.models.huggingface:Passed an already-initialized model through `pretrained`, assuming single-process call to evaluate() or custom distributed integration
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1838/1838 [00:01<00:00, 1636.41it/s]
+Running loglikelihood requests:  38%|█████████████████████████████████████▋                                                              | 1386/3676 [3:09:11<5:12:12,  8.18s/it]

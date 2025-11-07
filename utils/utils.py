@@ -12,6 +12,7 @@ import logging
 import os
 import random
 from typing import Optional
+import wandb
 
 import numpy as np
 import torch
@@ -179,3 +180,124 @@ def get_global_rank() -> int:
         return int(os.environ["RANK"])
 
     return 0
+
+# Wandb 관련 값들 작업들
+def setup_wandb(input_model,args):
+    """Initialize wandb with groups and tags for better organization"""
+    if not args.wandb:
+        return None
+    
+    import wandb
+    wandb.login()
+    
+    config = {
+        "model": input_model,
+        "tasks": args.tasks,
+        "w_bits": args.w_bits,
+        "a_bits": args.a_bits,
+        "k_bits": args.k_bits,
+        "w_groupsize": args.w_groupsize,
+        "a_groupsize": args.a_groupsize,
+        "k_groupsize": args.k_groupsize,
+        "batch_size": args.lm_eval_batch_size,
+        "seed": args.seed,
+    }
+    
+    # Build tags
+    tags = [
+        f"W{args.w_bits}",
+        f"A{args.a_bits}",
+        f"KV{args.k_bits}",
+    ]
+    
+    # Build group name (같은 설정의 run들을 그룹화)
+    group_name = f"Model {input_model} Tasks: {args.tasks} W{args.w_bits}A{args.a_bits}KV{args.k_bits}W_g_size{args.w_groupsize},A_g_size{args.a_groupsize},KV_g_size{args.k_groupsize}"
+    
+    if args.smooth_quant:
+        config["smooth_quant"] = True
+        config["smooth_alpha"] = args.alpha
+        tags.append("smooth-quant")
+        group_name += f"-smooth{args.alpha}"
+    
+    if args.rotate:
+        config["rotation"] = True
+        config["diagonal"] = args.diagonal if hasattr(args, 'diagonal') else False
+        config["diagonal_size"] = args.diagonal_size if args.diagonal else None
+        config["offline"] = args.offline if hasattr(args, 'offline') else False
+        tags.append("rotation")
+        group_name += "-rotate"
+        
+        if args.diagonal:
+            tags.append(f"diagonal-{args.diagonal_size}")
+            group_name +=f"diagonal-{args.diagonal_size}"
+    
+    # Initialize wandb
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_id,
+        name=group_name
+    )
+    wandb.log(config)
+    return run
+
+
+def log_quantization_info(args, log):
+    """Log quantization configuration"""
+    log.info(f"Quantization bits - W: {args.w_bits}, A: {args.a_bits}, KV: {args.k_bits}")
+    
+    if args.w_groupsize != -1:
+        log.info(f"Quantization group size - W: {args.w_groupsize}, A: {args.a_groupsize}")
+    else:
+        log.info("Quantization group size - W: per-channel, A: per-token")
+    
+    if hasattr(args, 'diagonal') and args.diagonal:
+        log.info(f"Diagonal size: {args.diagonal_size}")
+    
+    if args.k_groupsize != -1:
+        log.info(f"Quantization group size KV: {args.k_groupsize}")
+    else:
+        log.info("Quantization group size KV: per-head")
+    
+    if args.rotate:
+        log.info("Rotation available")
+        if args.optimized_rotation_path is not None:
+            log.info(f"Rotation repository: {args.optimized_rotation_path}")
+    
+    if args.w_rtn:
+        log.info("Using Round-to-nearest method for weight quantization")
+    elif args.w_bits < 16:
+        log.info("Using GPTQ method for weight quantization")
+
+
+def log_lm_eval_results(results, args, wandb_run=None):
+    """Process and log LM eval results"""
+    try:
+        metric_vals = {
+            task: round(result.get('acc_norm,none', result.get('acc,none', 0)), 4) 
+            for task, result in results.items()
+        }
+        
+        # Calculate average
+        if metric_vals:
+            metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
+        
+        # Print results
+        print("\n" + "="*50)
+        print("LM Evaluation Results:")
+        print("="*50)
+        for task, acc in metric_vals.items():
+            print(f"{task:20s}: {acc:.4f}")
+        print("="*50 + "\n")
+        
+        # Log to wandb
+        if wandb_run is not None:
+            wandb_run.log(metric_vals)
+        
+        return metric_vals
+        
+    except Exception as e:
+        error_msg = f"Error processing evaluation results: {e}"
+        print(error_msg)
+        if wandb_run is not None:
+            wandb_run.log({"error": error_msg})
+        return None

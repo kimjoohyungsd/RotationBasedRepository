@@ -1,0 +1,1 @@
+{"_runtime":44,"acc_avg":0.7889,"_timestamp":1.7624174180774908e+09,"quantization_bits":"W: 16, A: 16, KV: 16","quantization_group_size":"W: 128, A: 128","piqa":0.7889,"LM-eval tasks":["piqa"],"_step":3,"_wandb":{"runtime":44}}

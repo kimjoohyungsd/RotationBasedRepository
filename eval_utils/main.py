@@ -55,15 +55,16 @@ def ptq_model(args, model, model_args=None):
         utils.cleanup_memory(verbos=True)
 
         quant_utils.add_actquant(model)  # Add Activation Wrapper to the model
-        qlayers = quant_utils.find_qlayers(model) # Quantized 된 layer의 dictionary format을 만든
+        qlayers = quant_utils.find_qlayers(model) # Quantized 된 layer의 dictionary format을 만든 {name: ActQuantWrapper}
         for name in qlayers:
             if "down_proj" in name and not args.offline:
                 if not args.diagonal:
-                    had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
+                    had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
                     qlayers[name].online_full_had = True
                     qlayers[name].had_K = had_K
                     qlayers[name].K = K
                     qlayers[name].fp32_had = args.fp32_had
+                    # qlayers[name].transpose=True
                 else:
                     had_K, K = hadamard_utils.get_hadK(args.diagonal_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
                     qlayers[name].online_diagonal_had = True
@@ -199,10 +200,10 @@ def ptq_model(args, model, model_args=None):
             }
             if args.rotate and not args.offline:
                 for layer in layers:
-                    rotation_utils.add_qk_rotation_wrapper_after_function_call_in_forward(
+                    rotation_utils.add_qk_rotation_wrapper_after_function_call_in_forward( # 해당 instance만 apply_rotary_pos_emb가 QkrotationWrapper의 binding되도록 할당함
                         layer.self_attn,
                         rope_function_name,
-                        config=model.config,
+                        config=model.config, 
                         **k_quant_config,
                     )
 

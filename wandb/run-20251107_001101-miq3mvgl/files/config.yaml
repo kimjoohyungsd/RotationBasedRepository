@@ -1,0 +1,151 @@
+_wandb:
+    value:
+        cli_version: 0.22.3
+        e:
+            o1frd9zf3qlpqj1379jd792bsa6tzz2e:
+                args:
+                    - --input_model
+                    - meta-llama/Llama-2-7b-hf
+                    - --do_train
+                    - "False"
+                    - --do_eval
+                    - "True"
+                    - --per_device_eval_batch_size
+                    - "4"
+                    - --model_max_length
+                    - "2048"
+                    - --fp16
+                    - "False"
+                    - --bf16
+                    - "True"
+                    - --save_safetensors
+                    - "False"
+                    - --w_bits
+                    - "16"
+                    - --a_bits
+                    - "16"
+                    - --k_bits
+                    - "16"
+                    - --v_bits
+                    - "16"
+                    - --k_groupsize
+                    - "128"
+                    - --v_groupsize
+                    - "128"
+                    - --w_groupsize
+                    - "128"
+                    - --a_groupsize
+                    - "128"
+                    - --a_asym
+                    - --k_asym
+                    - --v_asym
+                    - --w_clip
+                    - --w_rtn
+                    - --lm_eval
+                    - --lm_eval_batch_size
+                    - "4"
+                    - --tasks
+                    - piqa
+                    - --wandb
+                    - --wandb_project
+                    - rotation-based-evaluation
+                    - --wandb_id
+                    - jhk971114
+                codePath: ptq.py
+                codePathLocal: ptq.py
+                cpu_count: 32
+                cpu_count_logical: 64
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "1887976378368"
+                        used: "1745848557568"
+                email: jhk971114@gmail.com
+                executable: /home/jhkcool97/anaconda3/envs/SpecInfer/bin/python
+                git:
+                    commit: 30560cf2912df7bbfc8f5dc5658cd838427f6ed0
+                    remote: https://github.com/kimjoohyungsd/RotationBasedRepository
+                gpu: NVIDIA GeForce RTX 4090
+                gpu_count: 8
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-335129e4-794c-f6f5-1c56-8d87ddc65eb9
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-efab86d8-6331-9fb9-9d4f-d61280acad57
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-58bd3a5f-5353-abad-d0d6-fcc424764170
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-fb099208-ff4b-dd83-1e3e-1d6a946477b4
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-ba03c9fb-a813-e88d-d229-6b50cdcc694b
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-f31ef2ce-a994-84c8-8982-bf0e94dd5b9f
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-a839d148-3eb3-2e39-a663-e354e2be1e4c
+                    - architecture: Ada
+                      cudaCores: 16384
+                      memoryTotal: "25757220864"
+                      name: NVIDIA GeForce RTX 4090
+                      uuid: GPU-62f0ff08-4088-5716-7dda-6225116837ab
+                host: gpusystem
+                memory:
+                    total: "270126313472"
+                os: Linux-5.15.0-124-generic-x86_64-with-glibc2.35
+                program: /home/jhkcool97/RotationBasedRepository/ptq.py
+                python: CPython 3.11.10
+                root: /home/jhkcool97/RotationBasedRepository
+                startedAt: "2025-11-07T00:11:01.061907Z"
+                writerId: o1frd9zf3qlpqj1379jd792bsa6tzz2e
+        m: []
+        python_version: 3.11.10
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 71
+                - 98
+                - 100
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 51
+                - 53
+                - 71
+                - 98
+                - 100
+            "3":
+                - 13
+            "4": 3.11.10
+            "5": 0.22.3
+            "6": 4.57.1
+            "12": 0.22.3
+            "13": linux-x86_64

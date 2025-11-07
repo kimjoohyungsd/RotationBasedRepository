@@ -13,17 +13,22 @@ import torch
 
 
 def fuse_ln_linear(
-    layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]
+    layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear],cpu_offload=False
 ) -> None:
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
     """
     for linear in linear_layers:
         linear_dtype = linear.weight.dtype
+        linear_device = linear.weight.device
 
+        if cpu_offload:
+            W_ = linear.weight.data.cpu().double()
+            linear.weight.data = (W_ * layernorm.weight.data.cpu().double()).to(linear_device).to(linear_dtype)
         # Calculating new weight and bias
-        W_ = linear.weight.data.double()
-        linear.weight.data = (W_ * layernorm.weight.double()).to(linear_dtype)
+        else:
+            W_ = linear.weight.data.double()
+            linear.weight.data = (W_ * layernorm.weight.double()).to(linear_dtype)
 
         if hasattr(layernorm, "bias"):
             if linear.bias is None:
@@ -69,6 +74,7 @@ def fuse_layer_norms(model):
     fuse_ln_linear(
         model.model.norm,
         [model.lm_head],
+        cpu_offload=True
     )
     W_norm = model.model.norm.weight.data
     model.model.norm.weight.data = torch.ones_like(W_norm)

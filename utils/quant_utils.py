@@ -223,6 +223,7 @@ class ActQuantWrapper(torch.nn.Module):
         self.online_diagonal_had = False
         self.had_dim = 0
         self.fp32_had = False
+        # self.transpose = False
 
     def extra_repr(self) -> str:
         str_ = f"Input Quantizer Bits: {self.quantizer.bits}"
@@ -250,11 +251,11 @@ class ActQuantWrapper(torch.nn.Module):
         if self.online_full_had:
             if self.fp32_had:  # Full Hadamard in FP32
                 
-                x = hadamard_utils.matmul_hadU_cuda(x.float(), self.had_K, self.K).to(
+                x = hadamard_utils.matmul_hadU_cuda(x.float(), self.had_K, self.K,transpose).to(
                     x_dtype
                 )
             else:  # Full Hadamard in FP16
-                x = hadamard_utils.matmul_hadU_cuda(x, self.had_K, self.K)
+                x = hadamard_utils.matmul_hadU_cuda(x, self.had_K, self.K,transpose)
 
         elif self.online_partial_had:
             # todo: implement this in QAttention to avoid reshaping!
@@ -519,7 +520,7 @@ def add_actquant(
 ) -> None:
     if isinstance(module, ActQuantWrapper):
         return
-    for attr in dir(module): # module의 모든 method나 멤버 변수들을 읽어들인다
+    for attr in dir(module): # 입력인자로 들어온 module안에 모든 변수와 메소드를 가지고 와줌
         tmp = getattr(module, attr)
         if type(tmp) in layers:
             setattr(module, attr, ActQuantWrapper(tmp)) # 해당 모듈의 속성 값을 ActQuantWrapper로 설정한다
@@ -540,7 +541,7 @@ def add_actquant(
                     replaced.append(child)
             setattr(module, attr, torch.nn.ModuleList(replaced))
             
-    for name1, child in module.named_children():
+    for name1, child in module.named_children(): # 모듈의 바로 직전 output의 해당하는 
         add_actquant(child, name + "." + name1 if name != "" else name1, layers)
 
 
@@ -555,7 +556,7 @@ def find_qlayers(
     if type(module) in layers:
         return {name: module}
     res = {}
-    for name1, child in module.named_children():
+    for name1, child in module.named_children(): # named_children은 바로 밑에 있는 Tree구조를 가지고 실제 적용 
         res.update(
             find_qlayers(
                 child, layers=layers, name=name + "." + name1 if name != "" else name1

@@ -139,9 +139,9 @@ def matmul_hadU_cuda(X, hadK, K, transpose=False):
         # input = hadKinv @ input # Step3 행렬의 곲을 진행한다
         return input.reshape(X.shape)
     else:
-        input = X.view(-1, K, n // K)
-        input = HadamardTransform.apply(input.contiguous()) / torch.tensor(n).sqrt()
-        input = hadK.to(input.device).to(input.dtype) @ input
+        input = X.view(-1, K, n // K) # [Batch,11008] =>[Batch, 172, 64]
+        input = HadamardTransform.apply(input.contiguous()) / torch.tensor(n).sqrt() # [Batch,172,64]
+        input = hadK.to(input.device).to(input.dtype) @ input # [Batch,172,64]
         return input.reshape(X.shape)
 
 
