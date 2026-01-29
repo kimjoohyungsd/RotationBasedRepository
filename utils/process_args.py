@@ -72,7 +72,16 @@ def parser_gen():
                         out-projection. Note that this does not apply rotation to the K/Q and they will be rotated
                         if we want to quantize the Keys""",
     )
-    
+
+    # Slider Quant의 아이디어를 바탕으로 하여 실제 R3나 R4를 적용할 Rotation Matrix를 지정 하자
+    parser.add_argument(
+        "--target_layer_indices", 
+        nargs='+',
+        type=int,
+        default=None,
+        help="Hadamard Rotation을 적용할 특정 Decoder 레이어 번호들"
+    )
+
     parser.add_argument(
         '--diagonal',
         action=argparse.BooleanOptionalAction,
@@ -89,7 +98,7 @@ def parser_gen():
         '--diagonal_num',
         type=int,
         default = -1,
-        help = "Number of block diagonal blocks if rotation matrix is applied in block diagonal method",
+        help = "Number of block diagonal blocks if rotation matrix is applied in block diagonal method, Diagonal Num should be identical with number of heads",
     )
     parser.add_argument(
         "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]

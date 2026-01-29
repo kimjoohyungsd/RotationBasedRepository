@@ -223,8 +223,8 @@ class LlamaRotaryEmbedding(nn.Module):
         # Core RoPE block
         inv_freq_expanded = (
             self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-        )
-        position_ids_expanded = position_ids[:, None, :].float()
+        ) # Shape: [head_dim/2] => [batch_size,head_dim/2,1]로 shape을 변화시켜 줌
+        position_ids_expanded = position_ids[:, None, :].float() # Shape: [batch_size,seq_len] => [batch_size,1,seq_len]
         # Force float32 (see https://github.com/huggingface/transformers/pull/29285)
         device_type = x.device.type
         device_type = (
@@ -234,11 +234,11 @@ class LlamaRotaryEmbedding(nn.Module):
         )
         with torch.autocast(device_type=device_type, enabled=False):
             freqs = (
-                inv_freq_expanded.float() @ position_ids_expanded.float()
-            ).transpose(1, 2)
-            emb = torch.cat((freqs, freqs), dim=-1)
+                inv_freq_expanded.float() @ position_ids_expanded.float() 
+            ).transpose(1, 2) # [batch_size,head_dim/2,1] @ [batch_size,1,seq_len] => (Batched Matmul) [batch_size,head_dim/2,seq_len] => (Transpose) [batch_size,seq_len,head_dim/2] 
+            emb = torch.cat((freqs, freqs), dim=-1) # [batch_size,seq_len,head_dim/2] => [batch_size,seq_len,head_dim] (Llama처럼 Pair간의 Stride가 head_dim/2 인 경우)
             cos = emb.cos()
-            sin = emb.sin()
+            sin = emb.sin() # sin, cos shape [batch_size, seq_len, head_dim] (Reduction 축에서 head_dim/2 stride로 동일한 값 설정)
 
         # Advanced RoPE types (e.g. yarn) apply a post-processing scaling factor, equivalent to scaling attention
         cos = cos * self.attention_scaling
@@ -276,7 +276,7 @@ def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+    return torch.cat((-x2, x1), dim=-1) # [-1 * latter_half, front_half]
 
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
@@ -299,9 +299,9 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
-    q_embed = (q * cos) + (rotate_half(q) * sin)
+    cos = cos.unsqueeze(unsqueeze_dim) # [Batch,1,Length, head_dim]
+    sin = sin.unsqueeze(unsqueeze_dim) # [Batch,1,Length, head_dim]
+    q_embed = (q * cos) + (rotate_half(q) * sin) # []
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
 
@@ -430,7 +430,7 @@ class LlamaAttention(nn.Module):
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
-
+        # print(f"position_ids shape{position_ids.shape}")
         if self.config.pretraining_tp > 1:
             key_value_slicing = (
                 self.num_key_value_heads * self.head_dim
@@ -501,8 +501,10 @@ class LlamaAttention(nn.Module):
             query_states, key_states.transpose(2, 3)
         ) / math.sqrt(self.head_dim)
 
-        if attention_mask is not None:  # no matter the length, we just slice it
+        if attention_mask is not None:  # no matter the length, we just slice it # [batch_size,num_head,kv_len,head_dim]
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+            # print(f"causal_mask shape: {attention_mask.shape}")
+            # print(f"attn_weights shape: {attn_weights.shape}")
             attn_weights = attn_weights + causal_mask
 
         # upcast attention to fp32
@@ -1339,6 +1341,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         >>> tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
+        # 인자 우선순위 결정 (Parameter Override) (Output_attentions: 각 Decoder Layer마다 Attention Output을 출력을 할지, Output_hidden_states: 각 Decoder Layer에 )
         output_attentions = (
             output_attentions
             if output_attentions is not None

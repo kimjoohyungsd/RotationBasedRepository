@@ -40,10 +40,10 @@ def get_act_scales(model, dataloader, num_samples=128):
         stat_tensor(name, x)
 
     hooks = []
-    for name, m in model.named_modules():
+    for name, m in model.named_modules(): # model.layers.0.self_attn.q_proj
         if isinstance(m, nn.Linear):
             hooks.append(
-                m.register_forward_hook( # func_tools_partial 고유의 훅 함수 만듬
+                m.register_forward_hook( # functools_partial 고유의 훅 함수 만듬
                     functools.partial(stat_input_hook, name=name)))
 
     for i in tqdm(range(num_samples)):
@@ -78,9 +78,11 @@ def main():
         add_bos_token=False,
         token=model_args.access_token,
     )
-    ptq_args.net = model_args.input_model.split('/')[-1]
-    dataloader=data_utils.get_wikitext2(tokenizer=tokenizer,eval_mode=False)
-    act_scales = get_act_scales(model, dataloader,ptq_args.nsamples)
+    ptq_args.net = model_args.input_model.split('/')[-1] # Llama-2-7b-hf
+    dataloader=data_utils.get_wikitext2(tokenizer=tokenizer,eval_mode=False) # dataloader로 값을 읽어온다
+    act_scales = get_act_scales(model, dataloader,ptq_args.nsamples) # act_scales로 값을 읽어온다
+
+    # 읽어들인 값을 저장하는 과정
     save_path = os.path.join(ptq_args.scales_output_path,f'{ptq_args.net}.pt')
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     torch.save(act_scales, save_path)

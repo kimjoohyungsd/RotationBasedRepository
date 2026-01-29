@@ -72,7 +72,7 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --input_model $1 \
 --do_train False \
 --do_eval True \
---per_device_eval_batch_size 4 \
+--per_device_eval_batch_size 1 \
 --model_max_length 2048 \
 --fp16 False \
 --bf16 True \
@@ -83,28 +83,33 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --v_bits $4 \
 --k_groupsize 128 \
 --v_groupsize 128 \
---w_groupsize 128 \
---a_groupsize 128 \
+--w_groupsize -1 \
+--a_groupsize -1 \
 --a_asym \
 --k_asym \
 --v_asym \
 --w_clip \
 --w_rtn \
---lm_eval \
---lm_eval_batch_size 4 \
---tasks "piqa" \
---wandb \
---wandb_project "rotation-based-evaluation" \
---wandb_id "jhk971114" \
-# --wikitext2 \
+--wikitext2 \
+# --rotate \
+# --rotate_mode 'hadamard' \
+# --diagonal \
+# --diagonal_size 128 \
+# --diagonal_num 32 \
+# --lm_eval \
+# --lm_eval_batch_size 4 \
+# --tasks "piqa" \
+# --wandb \
+# --wandb_project "rotation-based-evaluation" \
+# --wandb_id "jhk971114" \
+
 # --rotate \
 # --smooth_quant \
 # --alpha 0.60 \
 # --attention \
 
 # --a_clip_ratio 0.6
-# --diagonal \
-# --diagonal_size 128 \
+
 
 # --deactivate_r1 \
 

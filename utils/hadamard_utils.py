@@ -174,9 +174,9 @@ def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transp
     init_shape = W_.shape
     W_ = W_.float().cuda()
 
-    if had_dim == -1:
+    if had_dim == -1: # had_dim == -1 
         if Dim0:
-            had_K, K = get_hadK(dim0,transpose)
+            had_K, K = get_hadK(dim0,transpose) # Return Output: had_K: Power of 2 가 아닌 Hadamard Matrix, K: Power of 2가 아닌 Hadamard Matrix의 Shape (만약 power of 2 인 경우 k의 output은 1임)
             W_ = matmul_hadU_cuda(W_.t(), had_K, K,transpose).t()
         if not Dim0:
             had_K, K = get_hadK(dim1)
@@ -188,14 +188,20 @@ def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transp
         if Dim0: # V를 Embedding하는 Weight의 경우
             W_ = W_.t() # Transpose => Shape [input, output]
             transposed_shape = W_.shape # 
-            temp = W_.reshape(-1, transposed_shape[-1] // had_dim, had_dim) # Reshape => [input,output/had_dim,had_dim]
-            temp = temp.to(torch.float64) @ hadK # Batched Mat Mul => [input,output/had_dim, had_dim]
+            temp = W_.reshape(-1, transposed_shape[-1] // had_dim, had_dim) # Reshape => [input,(output/had_dim=Num_block),had_dim]
+            if hadK.dim() == 3:
+                temp = torch.einsum('ijk, jkl->ijl',temp.to(torch.float64),hadK) # Batched Mat Mul => [dim1,(dim0/had_dim=Num_block),had_dim] @ [Num_block,had_dim,had_dim] = [dim1,Num_block,had_dim]
+            else:
+                temp = temp.to(torch.float64) @ hadK # [dim1,Num_block,Had_dim] @ [Had_dim, Had_dim] => [dim1, Num_block, Had_dim] 
             # print(temp.shape)
             W_ = temp.reshape(transposed_shape).t() # Transposed Shape => [Output, input]
         else:
             init_shape = W_.shape
             temp = W_.reshape(-1, init_shape[-1] // had_dim, had_dim)
-            temp = temp.to(torch.float64) @ hadK
+            if hadK.dim() == 3:
+                temp = torch.einsum('ijk, jkl->ijl',temp.to(torch.float64),hadK) # Batched Mat Mul => [dim1,dim0/had_dim,had_dim] @ [Num_block,had_dim,had_dim] = [dim1,Num_block,had_dim]
+            else:
+                temp = temp.to(torch.float64) @ hadK
             # print(temp.shape)
             W_ = temp.reshape(init_shape)
     module.weight.data = W_.to(device=dev, dtype=dtype)

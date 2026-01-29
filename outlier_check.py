@@ -15,6 +15,7 @@ from scipy import stats
 import glob
 
 import torch
+# from transformers import LlamaTokenizerFast, pipeline, LlamaForCausalLM
 from transformers import LlamaTokenizerFast, pipeline
 import transformers
 
@@ -639,7 +640,7 @@ def train() -> None:
                 raise ValueError
         
         layers[0] = Catcher(layers[0])
-
+        
         try:
             model(input_ids)
         except ValueError:

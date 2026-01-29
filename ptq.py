@@ -10,7 +10,7 @@ from logging import Logger
 
 import torch
 import torch.distributed as dist
-from transformers import LlamaTokenizerFast, LlamaForCausalLM,pipeline,PreTrainedTokenizerFast
+from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast # LlamaForCausalLM, pipeline
 import transformers
 
 # import lm_eval
@@ -21,7 +21,7 @@ import transformers
 # from zeroShot.model import SpinquantLMWrapper
 
 from eval_utils.main import ptq_model
-# from eval_utils.modeling_llama import LlamaForCausalLM
+from eval_utils.modeling_llama import LlamaForCausalLM
 from utils import data_utils, eval_utils, utils
 from utils.process_args import process_args_ptq
 

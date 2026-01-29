@@ -10,14 +10,14 @@ python outlier_check.py \
 --fp16 True \
 --bf16 False \
 --save_safetensors False \
---distribution_dir /home/jhkcool97/Model_distribution/Llama-2-7b \
+--distribution_dir /home/jhkcool97/Model_distribution/Llama-3.1-8b \
 --capture_layer_io \
 --weight_check \
 --draw \
---rotate \
---smooth_quant \
---alpha 0.60 \
---attention \
+# --rotate \
+# --smooth_quant \
+# --alpha 0.60 \
+# --attention \
 # --diagonal \
 # --diagonal_size 128 \
 

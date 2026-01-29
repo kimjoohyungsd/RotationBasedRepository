@@ -29,12 +29,13 @@ def smooth_fc_fc(fc1,fc2,scales):
 
         fc1.weight.div_(scales.to(fc1.weight.device).view(-1,1))
         fc2.weight.mul_(scales.to(fc2.weight.device).view(1,-1))
+
 def smoothing(model,args,act_scales):
-    pairs = {
-            "q_proj":"qkv",
-            "o_proj":"out",
-            "up_proj":"fc1",
-            "down_proj":"down",
+    pairs = { # "레이어 그룹핑 가이드"
+            "q_proj":"qkv", # q_proj의 통계치를 보고 'qkv'라는 이름의 스케일을 만든다
+            "o_proj":"out", # o_proj의 통계치를 보고 'out'이라는 이름의 스케일을 만든다
+            "up_proj":"fc1",# up_proj의 통계치를 보고 'fc1'이라는 이름의 스케일을 만든다
+            "down_proj":"down", # down_proj의 통계치를 보고 'down'이라는 이름의 스케일을 만든다
         }
     
     
@@ -46,20 +47,20 @@ def smoothing(model,args,act_scales):
     layers=model.model.layers
     for i in range(len(layers)):
         layer=layers[i]
-        scales={}
+        scales={} # 계산된 보정값 저장소
         for name, module in layer.named_modules():
             if isinstance(module, nn.Linear):
                 for key in pairs.keys():
                     if key in name:
                         # print(name)
                         dtype=module.weight.dtype
-                        act=act_scales[f"{layer_name_prefix}.{i}.{name}"].to(device=dev,dtype=dtype).clamp(min=CLIPMIN)
-                        weight = module.weight.abs().max(dim=0)[0].clamp(min=CLIPMIN)
-                        scale = (act.pow(args.alpha)/weight.to(act.device).pow(1-args.alpha)).clamp(min=CLIPMIN)
-                        scales[pairs[key]]=scale
+                        act=act_scales[f"{layer_name_prefix}.{i}.{name}"].to(device=dev,dtype=dtype).clamp(min=CLIPMIN) # activation에 통계값 load
+                        weight = module.weight.abs().max(dim=0)[0].clamp(min=CLIPMIN) # Weight에 해당 Channel의 통계값 load
+                        scale = (act.pow(args.alpha)/weight.to(act.device).pow(1-args.alpha)).clamp(min=CLIPMIN) # SmoothQuant의 수식을 바탕으로 Scaling 값 구함
+                        scales[pairs[key]]=scale # Scales라는 Dictionary에 해당 값 구함 
 
-        smooth_ln_fcs(layer.input_layernorm,[layer.self_attn.q_proj,layer.self_attn.k_proj,layer.self_attn.v_proj],scales["qkv"])
-        smooth_ln_fcs(layer.post_attention_layernorm,[layer.mlp.gate_proj,layer.mlp.up_proj],scales["fc1"])
+        smooth_ln_fcs(layer.input_layernorm,[layer.self_attn.q_proj,layer.self_attn.k_proj,layer.self_attn.v_proj],scales["qkv"]) # Input Layernorm, [q_proj,k_proj,v_proj]에 적용
+        smooth_ln_fcs(layer.post_attention_layernorm,[layer.mlp.gate_proj,layer.mlp.up_proj],scales["fc1"]) # post_attention_layernorm, mlp.gate_proj,mlp.up_proj의 적용
         smooth_fc_fc(layer.mlp.up_proj,layer.mlp.down_proj,scales["down"])
         if (args.attention):
             smooth_fc_fc(layer.self_attn.v_proj,layer.self_attn.o_proj,scales["out"])       

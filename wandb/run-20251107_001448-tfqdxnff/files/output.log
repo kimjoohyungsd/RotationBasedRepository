@@ -1,4 +1,19 @@
 WARNING:lm_eval.models.huggingface:`pretrained` model kwarg is not of type `str`. Many other model arguments may be ignored. Please do not launch via accelerate or use `parallelize=True` if passing an existing model this way.
 WARNING:lm_eval.models.huggingface:Passed an already-initialized model through `pretrained`, assuming single-process call to evaluate() or custom distributed integration
 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 1838/1838 [00:01<00:00, 1636.41it/s]
-Running loglikelihood requests:  38%|█████████████████████████████████████▋                                                              | 1386/3676 [3:09:11<5:12:12,  8.18s/it]
+Running loglikelihood requests: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████| 3676/3676 [8:20:44<00:00,  8.17s/it]
+{'piqa': 0.7709, 'acc_avg': 0.7709}
+Traceback (most recent call last):
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 209, in <module>
+    train()
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 176, in train
+    wandb.log(metric_vals)
+    ^^^^^
+NameError: name 'wandb' is not defined
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 209, in <module>
+[rank0]:     train()
+[rank0]:   File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 176, in train
+[rank0]:     wandb.log(metric_vals)
+[rank0]:     ^^^^^
+[rank0]: NameError: name 'wandb' is not defined

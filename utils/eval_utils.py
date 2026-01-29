@@ -32,17 +32,18 @@ def evaluator(model, testenc, dev, args):
     # Convert the whole text of evaluation dataset into batches of sequences.
     input_ids = testenc.input_ids  # (1, text_len)
 
-    nsamples = input_ids.numel() // model.seqlen  # The tail is truncated. text_len / 2048
+    nsamples = input_ids.numel() // model.seqlen  # The tail is truncated. text_len / 2048 (166)
    
 
     input_ids = (
         input_ids[:, : nsamples * model.seqlen].view(nsamples, model.seqlen).to(dev)
-    )  # (nsamples, seqlen)
+    )  # (nsamples, seqlen) [166,2048]
+    # print(f"input_ids.shape: {input_ids.shape}")
 
     batch_size = args.bsz
     input_ids = [input_ids[i : i + batch_size] for i in range(0, nsamples, batch_size)] # [N_BATCH,BATCH_SIZE,SEQLEN]
     nbatches = len(input_ids) # N_BATCH
-
+    # print(f"nbatches: {nbatches}")
     dtype = next(iter(model.parameters())).dtype
     # The input of the first decoder layer.
     inps = torch.zeros(
@@ -78,11 +79,11 @@ def evaluator(model, testenc, dev, args):
 
     model.model.embed_tokens = model.model.embed_tokens.cpu()
     position_ids = cache["position_ids"]
-
+    # print(f"position_ids: {position_ids.shape}")
     torch.cuda.empty_cache()
     outs = [0] * nbatches
     attention_mask = cache["attention_mask"]
-
+    # print(f"attention_mask {attention_mask.shape}")
     for i in tqdm(range(len(layers)), desc="(Eval) Layers"):
         layer = layers[i].to(dev)
 

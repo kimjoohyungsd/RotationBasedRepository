@@ -52,11 +52,11 @@ def get_orthogonal_matrix(size, mode, device="cuda"):
         raise ValueError(f"Unknown mode {mode}")
 
 
-def rotate_embeddings(model, R1: torch.Tensor, diagonal) -> None:
+def rotate_embeddings(model, R1: torch.Tensor, args) -> None:
     # Rotate the embeddings.
     for W in [model.model.embed_tokens]:
-        if diagonal:
-            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=False,Matrix=R1) # W @ R1 
+        if args.diagonal:
+            apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=False,Matrix=R1) # W @ R1 
         else:
             dtype = W.weight.data.dtype
             dev = R1.device
@@ -68,18 +68,18 @@ def rotate_attention_inputs(layer, R1, diagonal) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
     for W in [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj]:
         if diagonal:
-            apply_exact_had_to_linear(W,had_dim = R1.shape[0],Dim0=False,Matrix=R1) # W @ R1
+            apply_exact_had_to_linear(W,had_dim = R1.shape[1],Dim0=False,Matrix=R1) # W @ R1
         else: 
             dtype = W.weight.dtype
             W_ = W.weight.to(device="cuda", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
+            W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
 
 
 def rotate_attention_output(layer, R1, diagonal) -> None:
     # Rotate output matrix of the self-attention layer.
     W = layer.self_attn.o_proj
     if diagonal:
-            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=True,Matrix=R1) # (W.T@R1)T
+            apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W.T@R1)T
     else:
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
@@ -99,14 +99,14 @@ def rotate_mlp_input(layer, R1,diagonal):
         else: 
             dtype = W.weight.dtype
             W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
+            W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
 
 
 def rotate_mlp_output(layer, R1, diagonal):
     # Rotate the MLP output weights and bias.
     W = layer.mlp.down_proj
     if diagonal:
-            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=True,Matrix=R1) # (W1.T @ R1)T => R1.T @ W1
+            apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W1.T @ R1)T => R1.T @ W1
     else:
         dtype = W.weight.data.dtype
         W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
@@ -119,11 +119,11 @@ def rotate_mlp_output(layer, R1, diagonal):
         W.bias.data = torch.matmul(R1.T, b).to(device="cpu", dtype=dtype)
 
 
-def rotate_head(model, R1: torch.Tensor,diagonal) -> None:
+def rotate_head(model, R1: torch.Tensor,args) -> None:
     # Rotate the head.
     W = model.lm_head
-    if diagonal:
-            apply_exact_had_to_linear(W,had_dim=R1.shape[0],Dim0=False,Matrix=R1)
+    if args.diagonal:
+            apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=False,Matrix=R1)
     else:
         dtype = W.weight.data.dtype
         dev = R1.device
@@ -149,7 +149,15 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
 @torch.inference_mode()
 def rotate_model(model, args):
     if args.diagonal: # R1도 Diagonal 하게 하는 경우 위와 같이 하나의 Diagonal size에 맞게 Rotation을 한다
-        R1 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
+        if args.diagonal_num != -1 and (args.diagonal_size * args.diagonal_num) == model.config.hidden_size:
+            diagonal_blocks = []
+            for _ in range(args.diagonal_num):
+                diagonal_blocks.append(get_orthogonal_matrix(args.diagonal_size,args.rotate_mode))
+
+            R1 = torch.stack(diagonal_blocks,dim=0)
+
+        else: # DuQuant 처럼 하나의 diagonal block을 모든 Matrix의 Reuse하는 경우
+            R1 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
     else:
         R1 = get_orthogonal_matrix(model.config.hidden_size, args.rotate_mode)
     if args.optimized_rotation_path is not None:
@@ -162,8 +170,8 @@ def rotate_model(model, args):
 
     # Rotation을 함에 있어서도 Diagonal 한 특성을 고려해서 Rotation을 진행한
     if (not args.deactivate_r1):
-        rotate_embeddings(model,R1,args.diagonal) 
-        rotate_head(model,R1,args.diagonal)
+        rotate_embeddings(model,R1,args) 
+        rotate_head(model,R1,args)
 
     utils.cleanup_memory()
     layers = [layer for layer in model.model.layers]
@@ -175,7 +183,14 @@ def rotate_model(model, args):
                 if (not args.deactivate_r2):
                     rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=args.online_r2)
             else:
-                R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
+                if args.diagonal_num != -1 and (args.diagonal_size * args.diagonal_num) == model.config.hidden_size:
+                    diagonal_blocks = []
+                    for _ in range(args.diagonal_num):
+                        diagonal_blocks.append(get_orthogonal_matrix(args.diagonal_size,args.rotate_mode))
+
+                    R2 = torch.stack(diagonal_blocks,dim=0)
+                else:
+                    R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
                 if (not args.deactivate_r2):
                     rotate_ov_proj(layers[idx], num_heads, args.diagonal_size, R2=R2,online_r2=args.online_r2)
         else:
