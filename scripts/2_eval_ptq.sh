@@ -91,7 +91,9 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --w_clip \
 --w_rtn \
 --wikitext2 \
-# --rotate \
+--rotate \
+--offline \
+# --target_layer_indices 0 31 \
 # --rotate_mode 'hadamard' \
 # --diagonal \
 # --diagonal_size 128 \

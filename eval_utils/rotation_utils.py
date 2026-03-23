@@ -72,7 +72,7 @@ def rotate_attention_inputs(layer, R1, diagonal) -> None:
         else: 
             dtype = W.weight.dtype
             W_ = W.weight.to(device="cuda", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
+            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
 
 
 def rotate_attention_output(layer, R1, diagonal) -> None:
@@ -99,7 +99,7 @@ def rotate_mlp_input(layer, R1,diagonal):
         else: 
             dtype = W.weight.dtype
             W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
+            W.weight.data = torch.matmul(W_, R1).to(device="cpu", dtype=dtype)
 
 
 def rotate_mlp_output(layer, R1, diagonal):

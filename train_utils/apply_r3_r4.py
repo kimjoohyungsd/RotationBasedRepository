@@ -85,7 +85,17 @@ def rotate_model(model, args):
     #     print(f"  Layer {idx} - New weight dtype: {layer.mlp.down_proj.weight.dtype}")
 
     #     print("R4 matrix fusion completed successfully!")
-        
+        is_target = False
+        if args.target_layer_indices is not None:
+            if idx in args.target_layer_indices:
+                is_target = True
+        else:
+            # 지정되지 않았을 때의 기본 동작 (모든 레이어 적용 혹은 미적용 결정)
+            is_target = True
+
+        if not is_target:
+            continue
+                
         R4_rotate_down_proj_weights(layers[idx],args)
 
 
