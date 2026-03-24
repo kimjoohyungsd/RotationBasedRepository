@@ -65,10 +65,10 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 
 
 # Option 2 (Only with Model)
-export NCCL_P2P_DISABLE="1"
-export NCCL_IB_DISABLE="1"
+# export NCCL_P2P_DISABLE="1"
+# export NCCL_IB_DISABLE="1"
 
-torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
+python ptq.py \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -91,8 +91,11 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 --w_clip \
 --w_rtn \
 --wikitext2 \
-# --rotate \
-# --rotate_mode 'hadamard' \
+--rotate \
+--rotate_mode 'hadamard' \
+--deactivate_r2 \
+# --deactivate_r1 \
+# --online_r2 \
 # --diagonal \
 # --diagonal_size 128 \
 # --diagonal_num 32 \
@@ -111,7 +114,7 @@ torchrun --nnodes=1 --nproc_per_node=1 --master_port=$MASTER_PORT ptq.py \
 # --a_clip_ratio 0.6
 
 
-# --deactivate_r1 \
+
 
 # --offline  \
 # --online_r2 \

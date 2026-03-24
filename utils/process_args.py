@@ -82,6 +82,7 @@ def parser_gen():
         help="Hadamard Rotation을 적용할 특정 Decoder 레이어 번호들"
     )
 
+    # Rotation Matrix를 Diagonal하게 적용할 경우
     parser.add_argument(
         '--diagonal',
         action=argparse.BooleanOptionalAction,
@@ -100,6 +101,8 @@ def parser_gen():
         default = -1,
         help = "Number of block diagonal blocks if rotation matrix is applied in block diagonal method, Diagonal Num should be identical with number of heads",
     )
+
+    # Rotation을 적용할 모드
     parser.add_argument(
         "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]
     )
@@ -109,18 +112,14 @@ def parser_gen():
         default=-1,
         help="Random Seed for generating random matrix!!",
     )
+
+    # Selective Rotation 관련 한 Parameter
     parser.add_argument(
         "--offline",
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Only Apply Offline Rotational Matrixes (ex) R1, R2)"
     )
-    # parser.add_argument(
-    #     '--no_r4',
-    #     action=argparse.BooleanOptionalAction,
-    #     default=True,
-    #     help="Apply inverse of R4 matrix to FFN_down matrix"
-    # )
     parser.add_argument(
         '--deactivate_r1',
         action=argparse.BooleanOptionalAction,
@@ -134,18 +133,23 @@ def parser_gen():
         help="Deactivate R2 rotation Matrix mentioned in the SpinQuant paper"
     )
     parser.add_argument(
-        '--only_r4',
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Applying only R4 rotation Matrix for testing"
-    )
-    parser.add_argument(
         '--online_r2', 
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Apply Online R2 as mentioned in QuaRot paper"
     ),
-
+    parser.add_argument(
+        '--deactivate_r3',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Deactivate R3 rotation Matrix mentioned in the SpinQuant paper"
+    ),
+    parser.add_argument(
+        '--deactivate_r4',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Deactivate R4 rotation Matrix mentioned in the SpinQuant paper"
+    )
     parser.add_argument(
         "--fp32_had",
         action=argparse.BooleanOptionalAction,

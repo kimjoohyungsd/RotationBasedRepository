@@ -9,7 +9,7 @@ import datetime
 from logging import Logger
 
 import torch
-import torch.distributed as dist
+# import torch.distributed as dist
 from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast # LlamaForCausalLM, pipeline
 import transformers
 
@@ -31,13 +31,13 @@ from datasets import load_dataset
 
 
 def train() -> None:
-    dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=100)) # initializes the default distributed process group and Communication backend: NCCL 
+    # dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=100)) # initializes the default distributed process group and Communication backend: NCCL 
     model_args, training_args, ptq_args = process_args_ptq()
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
-    local_rank = utils.get_local_rank() # 
+    # local_rank = utils.get_local_rank() # 
 
-    log.info("the rank is {}".format(local_rank)) # 두번 log
-    torch.distributed.barrier() # OS에서 Barrier 설정과 동일 
+    # log.info("the rank is {}".format(local_rank)) # 두번 log
+    # torch.distributed.barrier() # OS에서 Barrier 설정과 동일 
 
     config = transformers.AutoConfig.from_pretrained( 
         model_args.input_model, token=model_args.access_token
@@ -91,9 +91,9 @@ def train() -> None:
 
     model = ptq_model(ptq_args, model, model_args) # 
     model.seqlen = training_args.model_max_length
-    if local_rank == 0:
-        log.info("Model PTQ completed {}".format(model))
-        log.info("Start to load tokenizer...")
+    # if local_rank == 0:
+    #     log.info("Model PTQ completed {}".format(model))
+    #     log.info("Start to load tokenizer...")
     if 'Llama-3' in model_args.input_model:
         tokenizer = PreTrainedTokenizerFast.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
@@ -130,7 +130,7 @@ def train() -> None:
 
         dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
         log.info("wiki2 ppl is: {}".format(dataset_ppl))
-        dist.barrier()
+        # dist.barrier()
 
     if not ptq_args.lm_eval:
         log.info("Skipping LM_eval task")

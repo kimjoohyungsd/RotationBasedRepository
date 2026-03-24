@@ -71,7 +71,7 @@ def rotate_attention_inputs(layer, R1, diagonal) -> None:
             apply_exact_had_to_linear(W,had_dim = R1.shape[1],Dim0=False,Matrix=R1) # W @ R1
         else: 
             dtype = W.weight.dtype
-            W_ = W.weight.to(device="cuda", dtype=torch.float64)
+            W_ = W.weight.to(device="cpu", dtype=torch.float64)
             W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
 
 
@@ -82,11 +82,11 @@ def rotate_attention_output(layer, R1, diagonal) -> None:
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W.T@R1)T
     else:
         dtype = W.weight.data.dtype
-        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-        W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
+        W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
+        W.weight.data = torch.matmul(R1.T.cpu(), W_).to(device="cpu", dtype=dtype)
         
     if W.bias is not None:
-        b = W.bias.data.to(device="cuda", dtype=torch.float64)
+        b = W.bias.data.to(device="cpu", dtype=torch.float64)
         W.bias.data = torch.matmul(R1.T, b).to(device="cpu", dtype=dtype)
 
 
@@ -98,7 +98,7 @@ def rotate_mlp_input(layer, R1,diagonal):
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=False,Matrix=R1)
         else: 
             dtype = W.weight.dtype
-            W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
+            W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
             W.weight.data = torch.matmul(W_, R1.cpu()).to(device="cpu", dtype=dtype)
 
 
@@ -109,8 +109,8 @@ def rotate_mlp_output(layer, R1, diagonal):
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W1.T @ R1)T => R1.T @ W1
     else:
         dtype = W.weight.data.dtype
-        W_ = W.weight.data.to(device="cuda", dtype=torch.float64)
-        W.weight.data = torch.matmul(R1.T, W_).to(device="cpu", dtype=dtype)
+        W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
+        W.weight.data = torch.matmul(R1.T.cpu(), W_).to(device="cpu", dtype=dtype)
     # apply_exact_had_to_linear(
     #     W, had_dim=-1, output=False,transpose=True
     # )  # apply exact (inverse) hadamard on the weights of mlp output (Hadamard Matrix를 정확하게 구현하자)

@@ -45,7 +45,7 @@ def ptq_model(args, model, model_args=None):
 
         fuse_norm_utils.fuse_layer_norms(model) #
         rotation_utils.rotate_model(model, args)
-        if not args.offline:
+        if not args.offline and not args.deactivate_r4:
             print("Applying Online Transform")
             apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함
 
@@ -72,7 +72,7 @@ def ptq_model(args, model, model_args=None):
             if not is_target:
                 continue
                 
-            if "down_proj" in name and not args.offline:
+            if "down_proj" in name and not args.offline and not args.deactivate_r4:
                 if not args.diagonal:
                     had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
                     qlayers[name].online_full_had = True
@@ -184,7 +184,8 @@ def ptq_model(args, model, model_args=None):
                 )
 
             if "o_proj" in name:
-                layer_groupsize = head_dim
+                # layer_groupsize = head_dim
+                layer_groupsize = model_dim
 
             if "lm_head" in name:  # Skip lm_head quantization
                 layer_input_bits = 16
@@ -213,7 +214,7 @@ def ptq_model(args, model, model_args=None):
                 "k_sym": not (args.k_asym),
                 "k_clip_ratio": args.k_clip_ratio,
             }
-            if args.rotate and not args.offline:
+            if args.rotate and not args.offline and not args.deactivate_r3:
                 for layer in layers:
                     rotation_utils.add_qk_rotation_wrapper_after_function_call_in_forward( # 해당 instance만 apply_rotary_pos_emb가 QkrotationWrapper의 binding되도록 할당함
                         layer.self_attn,
