@@ -91,9 +91,9 @@ python ptq.py \
 --w_clip \
 --w_rtn \
 --wikitext2 \
---rotate \
---rotate_mode 'hadamard' \
---deactivate_r2 \
+# --rotate \
+# --rotate_mode 'hadamard' \
+# --online_r2
 # --deactivate_r1 \
 # --online_r2 \
 # --diagonal \

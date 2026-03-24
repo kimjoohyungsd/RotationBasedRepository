@@ -95,13 +95,6 @@ def parser_gen():
         default = -1,
         help = "Size of block diagonal block is better if this size is a power of 2",
     )
-    parser.add_argument(
-        '--diagonal_num',
-        type=int,
-        default = -1,
-        help = "Number of block diagonal blocks if rotation matrix is applied in block diagonal method, Diagonal Num should be identical with number of heads",
-    )
-
     # Rotation을 적용할 모드
     parser.add_argument(
         "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]
@@ -114,12 +107,6 @@ def parser_gen():
     )
 
     # Selective Rotation 관련 한 Parameter
-    parser.add_argument(
-        "--offline",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Only Apply Offline Rotational Matrixes (ex) R1, R2)"
-    )
     parser.add_argument(
         '--deactivate_r1',
         action=argparse.BooleanOptionalAction,

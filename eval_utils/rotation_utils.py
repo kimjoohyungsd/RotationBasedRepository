@@ -148,16 +148,8 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
 
 @torch.inference_mode()
 def rotate_model(model, args):
-    if args.diagonal: # R1도 Diagonal 하게 하는 경우 위와 같이 하나의 Diagonal size에 맞게 Rotation을 한다
-        if args.diagonal_num != -1 and (args.diagonal_size * args.diagonal_num) == model.config.hidden_size:
-            diagonal_blocks = []
-            for _ in range(args.diagonal_num):
-                diagonal_blocks.append(get_orthogonal_matrix(args.diagonal_size,args.rotate_mode))
-
-            R1 = torch.stack(diagonal_blocks,dim=0)
-
-        else: # DuQuant 처럼 하나의 diagonal block을 모든 Matrix의 Reuse하는 경우
-            R1 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
+    if args.diagonal: 
+        R1 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
     else:
         R1 = get_orthogonal_matrix(model.config.hidden_size, args.rotate_mode)
     if args.optimized_rotation_path is not None:
@@ -176,30 +168,26 @@ def rotate_model(model, args):
     utils.cleanup_memory()
     layers = [layer for layer in model.model.layers]
     for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Rotating")):
-        
         if args.diagonal:
             if args.diagonal_size > head_dim:
                 R2 = get_orthogonal_matrix(head_dim,args.rotate_mode)
                 if (not args.deactivate_r2):
                     rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=args.online_r2)
             else:
-                if args.diagonal_num != -1 and (args.diagonal_size * args.diagonal_num) == model.config.hidden_size:
-                    diagonal_blocks = []
-                    for _ in range(args.diagonal_num):
-                        diagonal_blocks.append(get_orthogonal_matrix(args.diagonal_size,args.rotate_mode))
-
-                    R2 = torch.stack(diagonal_blocks,dim=0)
-                else:
-                    R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
+                R2 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
                 if (not args.deactivate_r2):
                     rotate_ov_proj(layers[idx], num_heads, args.diagonal_size, R2=R2,online_r2=args.online_r2)
         else:
             R2 = get_orthogonal_matrix(head_dim, args.rotate_mode)
+            online_r2 = args.online_r2
             if args.optimized_rotation_path is not None:
                 key = f"model.layers.{idx}.self_attn.R2"
                 R2 = torch.load(R_cpk)[key].cuda().to(torch.float64)
-            if (not args.deactivate_r2):    
-                rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=args.online_r2)
+                online_r2=False
+
+            if (not args.deactivate_r2):
+                rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=online_r2)    
+                
         if (not args.deactivate_r1):
             rotate_attention_inputs(layers[idx], R1, args.diagonal)
             rotate_attention_output(layers[idx], R1, args.diagonal)

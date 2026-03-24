@@ -132,7 +132,8 @@ def cleanup_memory(verbos=True) -> None:
 def get_logger(logger_name: Optional[str],outpath:str=None) -> logging.Logger:
     # Get the logger with the specified name
     logger = logging.getLogger(logger_name)
-
+    logger.propagate = False  # 자식의 로그를 부모(Root)에게 전달하지 않음
+    
     # Set the logging level of the logger to INFO
     logger.setLevel(logging.INFO)
 
@@ -144,7 +145,7 @@ def get_logger(logger_name: Optional[str],outpath:str=None) -> logging.Logger:
     # Create a console handler for outputting log messages to the console
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
-
+    logger.addHandler(console_handler)
 
     # Add the console handler to the logger
     if outpath:

@@ -21,36 +21,41 @@ from utils.convert_to_executorch import (
 )
 
 
-def ptq_model(args, model, model_args=None):
+def ptq_model(args, model, log,model_args=None):
     transformers.set_seed(args.seed)
     model.eval()
 
     # Smoothing Applied if requested
     if args.smooth_quant:
         args.act_scales = f"./act_scales/{model_args.input_model.split('/')[-1]}.pt"
-        print("Smoothing Applied")
-        print(f"smoothing Alpha: {args.alpha}")
-        if args.attention:
-            print("Smoothing Applied to Attention")
+        log.info("Smoothing Applied")
+        # print(f"smoothing Alpha: {args.alpha}")
+        # if args.attention:
+        #     print("Smoothing Applied to Attention")
         act_scales = torch.load(args.act_scales)
         smooth_quant.smoothing(model,args,act_scales)
 
     # Rotate the weights
     if args.rotate:
-        
-        if not args.offline:
-            print("Applying Online Transform")
-        else:
-            print("Applying Offline Transform") 
+        log.info("R1: {}, R2: {}, R3: {}, R4: {}".format(
+            not args.deactivate_r1, 
+            not args.deactivate_r2, 
+            (not args.deactivate_r3 and args.k_bits < 16), # R3: KV 캐시 양자화 시에만 의미 있음
+            not args.deactivate_r4                         # R4: 쉼표로 구분 필수
+        ))
 
-        fuse_norm_utils.fuse_layer_norms(model) #
+        
+        if not args.deactivate_r1:
+            fuse_norm_utils.fuse_layer_norms(model) #
+            log.info("LayerNorm Fusion Applied For R1 Transform")
+
         rotation_utils.rotate_model(model, args)
-        if not args.offline and not args.deactivate_r4:
-            print("Applying Online Transform")
+        if not args.deactivate_r4:
+            log.info("Applying R4 Transform")
             apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함
 
         if args.online_r2:
-            print("Applying QuaRot based R2 rotation")
+            log.info("Online R2 rotation in QuaRot Applied")
 
         utils.cleanup_memory(verbos=True)
 
@@ -96,16 +101,6 @@ def ptq_model(args, model, model_args=None):
                 qlayers[name].had_dim = model.config.hidden_size//model.config.num_attention_heads
                 qlayers[name].fp32_had = args.fp32_had
     else:
-        # quant_utils.add_actquant(model)  # Add Activation Wrapper to the model
-        # qlayers = quant_utils.find_qlayers(model)
-        # for name in qlayers:
-        #     if "down_proj" in name:
-        #         had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size)
-        #         qlayers[name].online_full_had = True
-        #         qlayers[name].had_K = had_K
-        #         qlayers[name].K = K
-        #         qlayers[name].fp32_had = args.fp32_had
-        # print("Rotation not applied")
         quant_utils.add_actquant(
             model
         )  # Add Activation Wrapper to the model as the rest of the code assumes it is present
@@ -206,6 +201,7 @@ def ptq_model(args, model, model_args=None):
         if args.k_pre_rope:
             raise NotImplementedError("Pre-RoPE quantization is not supported yet!")
         else:
+            log.info("Applying R3")
             rope_function_name = "apply_rotary_pos_emb"
             layers = model.model.layers
             k_quant_config = {

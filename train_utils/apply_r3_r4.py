@@ -46,45 +46,12 @@ def rotate_model(model, args):
     head_dim = model_dim // num_heads
     hidden_size = config.intermediate_size
 
-    # had_K, K = get_hadK(hidden_size)
-    # n = hidden_size // K
-
-    # # Step2 R4의 Inverse Matrix를 Manually 하게 구한다 
-    # first_layer = model.model.layers[0]
-    # dtype = first_layer.mlp.down_proj.weight.dtype
-    # R4_matrix_np = np.kron(had_K.T.detach().cpu().numpy(), hadamard(n))
-    # R4_matrix = torch.from_numpy(R4_matrix_np).to(dtype=dtype)
-    # R4_matrix = R4_matrix * 1/torch.tensor(hidden_size, dtype=dtype).sqrt()
-
     utils.cleanup_memory()
     layers = [layer for layer in model.model.layers]
     for idx, layer in enumerate(
         tqdm.tqdm(layers, unit="layer", desc="Applying R4 rotation to W_down")
     ):
-    #     w_ = layer.mlp.down_proj.weight.data
-    #     dev = w_.device
-    #     init_shape = w_.shape
-        
-    #     print(f"  Layer {idx} - Weight device: {dev}")
-    #     print(f"  Layer {idx} - Weight dtype: {dtype}")
-    #     print(f"  Layer {idx} - Weight shape: {w_.shape}")
-        
-    #     # Move both tensors to CPU for matmul (to avoid multi-GPU issues)
-    #     # weight_cpu = original_down_weight.detach().cpu().to(dtype=original_dtype)
-    #     # r4_cpu = R4_matrix.detach().cpu().to(dtype=original_dtype)
-        
-    #     # Perform matrix multiplication on CPU
-
-    #     new_down_weight = torch.matmul(w_, R4_matrix.to(dev))
-        
-        
-    #     # Assign as Parameter (CRITICAL: must be Parameter, not regular tensor)
-    #     layer.mlp.down_proj.weight.data = new_down_weight.to(device=dev,dtype=dtype)
-        
-    #     print(f"  Layer {idx} - New weight device: {layer.mlp.down_proj.weight.device}")
-    #     print(f"  Layer {idx} - New weight dtype: {layer.mlp.down_proj.weight.dtype}")
-
-    #     print("R4 matrix fusion completed successfully!")
+    
         is_target = False
         if args.target_layer_indices is not None:
             if idx in args.target_layer_indices:

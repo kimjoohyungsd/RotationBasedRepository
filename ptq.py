@@ -34,10 +34,6 @@ def train() -> None:
     # dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=100)) # initializes the default distributed process group and Communication backend: NCCL 
     model_args, training_args, ptq_args = process_args_ptq()
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
-    # local_rank = utils.get_local_rank() # 
-
-    # log.info("the rank is {}".format(local_rank)) # 두번 log
-    # torch.distributed.barrier() # OS에서 Barrier 설정과 동일 
 
     config = transformers.AutoConfig.from_pretrained( 
         model_args.input_model, token=model_args.access_token
@@ -54,46 +50,26 @@ def train() -> None:
         torch_dtype=dtype,
         token=model_args.access_token,
     )
-    # model=transformers.LlamaForCausalLM.from_pretrained(
-    #            pretrained_model_name_or_path=model_args.input_model,
-    #     config=config,
-    #     torch_dtype=dtype,
-    #     token=model_args.access_token,
-    # )
+
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
     model.cuda() # 모델을 GPU로 옮긴다
 
     if (ptq_args.rotate):
-        log.info("Rotation available")
+        log.info("Rotation applied")
         if ptq_args.optimized_rotation_path is not None:
-            log.info("Rotation_repository{}".format(ptq_args.optimized_rotation_path))
+            log.info("Trained Rotation Matrix applied")
 
-    if (ptq_args.w_rtn):
-        log.info("During Weight Quantization use basic Round-to-nearest method")
-    else:
-        if ptq_args.w_bits<16:
-            log.info("Use GPTQ method in Weight Quantization")
+    log.info("Quantization bits W: {},A: {}, KV: {}".format(ptq_args.w_bits,ptq_args.a_bits,ptq_args.k_bits))
 
-    print("Quantization bits W: {},A: {}, KV: {}".format(ptq_args.w_bits,ptq_args.a_bits,ptq_args.k_bits))
+    a_groupsize = ptq_args.a_groupsize if ptq_args.a_groupsize != -1 else "per-token"
+    w_groupsize = ptq_args.w_groupsize if ptq_args.w_groupsize != -1 else "per-channel"
+    kv_groupsize = ptq_args.k_groupsize if ptq_args.k_groupsize != -1 else 128
+    log.info("Quantization group size W: {}, A: {}, KV: {}".format(a_groupsize,w_groupsize,kv_groupsize))
 
-    if ptq_args.w_groupsize != -1:
-        print("Quantization group size W: {},A:{}".format(ptq_args.w_groupsize,ptq_args.a_groupsize))
-    else:
-        print("Quantization group size W: per-channel,A:per-token")
-    
-    if ptq_args.diagonal:
-        print("Diagonal size : {}".format(ptq_args.diagonal_size))
-    if ptq_args.k_groupsize != -1:
-        log.info("Quantization group size KV: {}".format(ptq_args.k_groupsize))
-    else:
-        log.info("Quantization group size KV: per-head")
-
-    model = ptq_model(ptq_args, model, model_args) # 
+    model = ptq_model(ptq_args, model, log, model_args) # 
     model.seqlen = training_args.model_max_length
-    # if local_rank == 0:
-    #     log.info("Model PTQ completed {}".format(model))
-    #     log.info("Start to load tokenizer...")
+
     if 'Llama-3' in model_args.input_model:
         tokenizer = PreTrainedTokenizerFast.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
@@ -121,7 +97,7 @@ def train() -> None:
 
     if ptq_args.wikitext2:
         model.config.use_cache = False
-        testloader = data_utils.get_wikitext2( #
+        testloader = data_utils.get_wikitext2( 
             seed=ptq_args.seed,
             seqlen=2048,
             tokenizer=tokenizer,
@@ -144,21 +120,6 @@ def train() -> None:
         from lm_eval.api.registry import ALL_TASKS
         from lm_eval.models.huggingface import HFLM
         wandb_run = utils.setup_wandb(model_args.input_model,ptq_args) if local_rank == 0 else None
-        # if ptq_args.wandb:
-        #     import wandb
-        #     wandb.login()
-        #     wandb.init(project=ptq_args.wandb_project, entity=ptq_args.wandb_id)
-        #     wandb.config.update(ptq_args)
-
-        #     wandb.log({"LM-eval tasks": ptq_args.tasks})
-        #     wandb.log({"quantization_bits": f"W: {ptq_args.w_bits}, A: {ptq_args.a_bits}, KV: {ptq_args.k_bits}"})
-        #     wandb.log({"quantization_group_size": f"W: {ptq_args.w_groupsize}, A: {ptq_args.a_groupsize}"})
-        #     if (ptq_args.rotate):
-        #         wandb.log({"rotation_status": "Rotation available"})
-        #         if (ptq_args.diagonal):
-        #             wandb.log({f"Diagonal size:{ptq_args.diagonal_size} "})
-        #         if (ptq_args.offline):
-        #             wandb.log({"Offline Quantization": "offline"})
 
         model.cuda()
         hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
@@ -177,33 +138,6 @@ def train() -> None:
 
         if wandb_run:
             wandb_run.finish()
-
-
-    # if local_rank ==  0 and ptq_args.lm_eval_dat is not None:
-    #     model.config.use_cache = True
-    #     log.info("Starting zero-shot evaluation with lm_eval harness...")
-    #     model.cuda()
-    #     wrapped_model=SpinquantLMWrapper(pretrained=model,tokenizer=tokenizer,max_length=model.seqlen)
-    #     try:
-    #         results = lm_eval.simple_evaluate(
-    #             model=wrapped_model,
-    #             tasks=ptq_args.lm_eval_dat,
-    #             num_fewshot=0,
-    #             batch_size=8,
-    #         )
-    #         summary_metrics = results.get("results", {})
-    #         formatted_metrics = "\n".join(f"{task}: {metric_dict}" for task, metric_dict in summary_metrics.items())
-    #         log.info("Evaluation Metrics Summary:\n{}".format(formatted_metrics))
-    #         print("Zero-shot Evaluation Results:")
-    #         # print(results) # 주석 해제하여 전체 결과 출력 가능
-    #     except Exception as e:
-    #         log.error(f"Error during zero-shot evaluation with lm_eval harness: {e}")
-    #         # print(results)
-        #2: Test for Arc-E dataset
-
-        
-        # pipe= pipeline
-        # dataset=load_dataset("arc-e")
 
 if __name__ == "__main__":
     train()
