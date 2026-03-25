@@ -44,16 +44,21 @@ def train() -> None:
         config.tie_word_embeddings = False
         process_word_embeddings = True
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
+
+    device_map = "auto" if ptq_args.distribute else None
     model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
         pretrained_model_name_or_path=model_args.input_model,
         config=config,
         torch_dtype=dtype,
         token=model_args.access_token,
+        device_map=device_map
     )
 
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
-    model.cuda() # 모델을 GPU로 옮긴다
+
+    if not ptq_args.distribute:
+        model.cuda() # 모델을 GPU로 옮긴다
 
     if (ptq_args.rotate):
         log.info("Rotation applied")

@@ -61,7 +61,9 @@ def ptq_model(args, model, log,model_args=None):
 
         quant_utils.add_actquant(model)  # Add Activation Wrapper to the model
         qlayers = quant_utils.find_qlayers(model) # Quantized 된 layer의 dictionary format을 만든 {name: ActQuantWrapper}
+        # print(qlayers)
         for name in qlayers:
+            # print(name)
             # 1. 현재 레이어의 인덱스 추출 (예: 'model.layers.5.mlp.down_proj' -> 5)
             try:
                 current_idx = int(name.split('.')[2])
@@ -69,15 +71,15 @@ def ptq_model(args, model, log,model_args=None):
                 continue
             
             # 2. 지정된 인덱스 리스트에 포함되는지 확인
-            is_target = False
-            if args.target_layer_indices is not None:
-                if current_idx in args.target_layer_indices:
-                    is_target = True
+            # is_target = False
+            # if args.target_layer_indices is not None:
+            #     if current_idx in args.target_layer_indices:
+            #         is_target = True
 
-            if not is_target:
-                continue
+            # if not is_target:
+            #     continue
                 
-            if "down_proj" in name and not args.offline and not args.deactivate_r4:
+            if "down_proj" in name and not args.deactivate_r4:
                 if not args.diagonal:
                     had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
                     qlayers[name].online_full_had = True
@@ -101,6 +103,7 @@ def ptq_model(args, model, log,model_args=None):
                 qlayers[name].had_dim = model.config.hidden_size//model.config.num_attention_heads
                 qlayers[name].fp32_had = args.fp32_had
     else:
+        log.info("Rotation Not applied")
         quant_utils.add_actquant(
             model
         )  # Add Activation Wrapper to the model as the rest of the code assumes it is present

@@ -325,7 +325,8 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
     quantizers = {}
 
     for i in tqdm.tqdm(range(len(layers)), desc="(RtN Quant.) Layers"):
-        layer = layers[i].to(dev)
+        original_device = next(layers[i].parameters()).device
+        layer = layers[i].cpu()
 
         subset = quant_utils.find_qlayers(
             layer, layers=[torch.nn.Linear, torch.nn.Embedding]
@@ -358,7 +359,7 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
                 subset[name].register_buffer("int_weight", int_weight)
                 subset[name].register_buffer("scale", scale)
             quantizers["model.layers.%d.%s" % (i, name)] = quantizer.cpu()
-        layers[i] = layer.cpu()
+        layers[i] = layer.to(device=original_device)
         torch.cuda.empty_cache()
         del layer
 

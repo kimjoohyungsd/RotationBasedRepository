@@ -16,9 +16,37 @@ from tqdm import tqdm
 
 from utils import model_utils
 
+def _get_input_device_for_dispatched_model(model):
+    # 보통 embed_tokens가 첫 입력을 받는 위치
+    try:
+        return model.model.embed_tokens.weight.device
+    except Exception:
+        pass
+
+    # hf_device_map이 있으면 첫 non-cpu/cuda device를 찾는다
+    if hasattr(model, "hf_device_map"):
+        for _, d in model.hf_device_map.items():
+            if isinstance(d, str) and d.startswith("cuda"):
+                return torch.device(d)
+
+    # fallback
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+def _get_lm_head_device(model):
+    try:
+        return model.lm_head.weight.device
+    except Exception:
+        return _get_input_device_for_dispatched_model(model)
 
 @torch.no_grad()
 def evaluator(model, testenc, dev, args):
+    if getattr(args, "distribute", False):
+        return evaluator_dispatched(model, testenc, args)
+    else:
+        return evaluator_single_gpu(model, testenc, dev, args)
+        
+@torch.no_grad()
+def evaluator_single_gpu(model, testenc, dev, args):
     model.eval()
 
     use_cache = model.config.use_cache
@@ -125,6 +153,56 @@ def evaluator(model, testenc, dev, args):
         nlls.append(neg_log_likelihood)
     nlls_tensor = torch.cat(nlls) # [N_batch*batch_size]
     ppl = torch.exp(nlls_tensor.mean())
+    model.config.use_cache = use_cache
+    logging.info(f"\n WikiText2 PPL: {ppl.item():.3f}")
+    return ppl.item()
+
+@torch.no_grad()
+def evaluator_dispatched(model, testenc, args):
+    model.eval()
+
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+
+    input_ids = testenc.input_ids  # shape: (1, text_len)
+    nsamples = input_ids.numel() // model.seqlen
+    input_ids = input_ids[:, : nsamples * model.seqlen].view(nsamples, model.seqlen)
+
+    batch_size = args.bsz
+    batches = [input_ids[i: i + batch_size] for i in range(0, nsamples, batch_size)]
+
+    input_dev = _get_input_device_for_dispatched_model(model)
+    lm_head_dev = _get_lm_head_device(model)
+
+    loss_fct = torch.nn.CrossEntropyLoss(reduction="none")
+    nlls = []
+
+    for batch in tqdm(batches, desc="(Eval) Batches"):
+        batch = batch.to(input_dev)
+
+        outputs = model(batch)
+        logits = outputs.logits
+
+        # logits device와 label device 맞추기
+        if logits.device != lm_head_dev:
+            logits = logits.to(lm_head_dev)
+
+        shift_logits = logits[:, :-1, :]
+        shift_labels = batch[:, 1:].to(shift_logits.device)
+
+        loss = loss_fct(
+            shift_logits.permute(0, 2, 1),   # [B, V, T-1]
+            shift_labels                     # [B, T-1]
+        )
+        neg_log_likelihood = loss.float().mean(dim=1)  # [B]
+        nlls.append(neg_log_likelihood.cpu())
+
+        del outputs, logits, shift_logits, shift_labels, loss
+        torch.cuda.empty_cache()
+
+    nlls_tensor = torch.cat(nlls)
+    ppl = torch.exp(nlls_tensor.mean())
+
     model.config.use_cache = use_cache
     logging.info(f"\n WikiText2 PPL: {ppl.item():.3f}")
     return ppl.item()
