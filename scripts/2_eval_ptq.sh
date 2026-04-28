@@ -34,31 +34,31 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 # --optimized_rotation_path "your_path/R.bin" \
 
 # Option 1 (Default running with Rotation Matrix Fusion)
-# torchrun --nnodes=1 --nproc_per_node=1 ptq.py \
-# --input_model $1 \
-# --do_train False \
-# --do_eval True \
-# --per_device_eval_batch_size 4 \
-# --model_max_length 2048 \
-# --fp16 False \
-# --bf16 True \
-# --save_safetensors False \
-# --w_bits $2 \
-# --a_bits $3 \
-# --k_bits $4 \
-# --v_bits $4 \
-# --k_asym \
-# --v_asym \
-# --k_groupsize 128 \
-# --v_groupsize 128 \
-# --rotate \
-# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
-# --wikitext2 \
-# --w_clip \
-# # --w_groupsize 32 \
-# # --a_groupsize 32 \
-# # --w_rtn \
-# # --a_asym \
+python  ptq.py \
+--input_model $1 \
+--do_train False \
+--do_eval True \
+--per_device_eval_batch_size 4 \
+--model_max_length 2048 \
+--fp16 False \
+--bf16 True \
+--save_safetensors False \
+--w_bits $2 \
+--a_bits $3 \
+--k_bits $4 \
+--v_bits $4 \
+--k_asym \
+--v_asym \
+--k_groupsize 128 \
+--v_groupsize 128 \
+--rotate \
+--optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
+--wikitext2 \
+--w_clip \
+# --w_groupsize 32 \
+# --a_groupsize 32 \
+# --w_rtn \
+# --a_asym \
 
 
 
@@ -68,33 +68,33 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 # export NCCL_P2P_DISABLE="1"
 # export NCCL_IB_DISABLE="1"
 
-python ptq.py \
---input_model $1 \
---do_train False \
---do_eval True \
---per_device_eval_batch_size 1 \
---model_max_length 2048 \
---fp16 False \
---bf16 True \
---save_safetensors False \
---w_bits $2 \
---a_bits $3 \
---k_bits $4 \
---v_bits $4 \
---k_groupsize 128 \
---v_groupsize 128 \
---w_groupsize -1 \
---a_groupsize -1 \
---a_asym \
---k_asym \
---v_asym \
---w_clip \
---w_rtn \
---wikitext2 \
---distribute \
---rotate \
---rotate_mode 'hadamard' \
---deactivate_r2 \
+# python ptq.py \
+# --input_model $1 \
+# --do_train False \
+# --do_eval True \
+# --per_device_eval_batch_size 1 \
+# --model_max_length 2048 \
+# --fp16 False \
+# --bf16 True \
+# --save_safetensors False \
+# --w_bits $2 \
+# --a_bits $3 \
+# --k_bits $4 \
+# --v_bits $4 \
+# --k_groupsize 128 \
+# --v_groupsize 128 \
+# --w_groupsize -1 \
+# --a_groupsize -1 \
+# --a_asym \
+# --k_asym \
+# --v_asym \
+# --w_clip \
+# --w_rtn \
+# --wikitext2 \
+# --distribute \
+# --rotate \
+# --rotate_mode 'hadamard' \
+# --deactivate_r2 \
 # --online_r2 \
 # --deactivate_r1 \
 
@@ -102,7 +102,36 @@ python ptq.py \
 # --deactivate_r4 \
 
 
-
+# Meta-Llama/2-7b-hf per-column으로 Quantization을 진행하는 경우 
+# python ptq.py \
+# --input_model $1 \
+# --do_train False \
+# --do_eval True \
+# --per_device_eval_batch_size 1 \
+# --model_max_length 2048 \
+# --fp16 False \
+# --bf16 True \
+# --save_safetensors False \
+# --w_bits $2 \
+# --a_bits $3 \
+# --k_bits $4 \
+# --v_bits $4 \
+# --k_groupsize 128 \
+# --v_groupsize 128 \
+# --w_groupsize -1 \
+# --a_groupsize -1 \
+# --rotate \
+# --a_asym \
+# --k_asym \
+# --v_asym \
+# --w_clip \
+# --w_rtn \
+# --wikitext2 \
+# --lm_eval
+# --distribute \
+# --rotate \
+# --rotate_mode 'hadamard' \
+# --deactivate_r2 \
 # --deactivate_r1 \
 # --online_r2 \
 # --diagonal \

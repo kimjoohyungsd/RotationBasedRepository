@@ -45,19 +45,19 @@ def smoothing(model,args,act_scales):
 
     dev=model.device
     layers=model.model.layers
-    for i in range(len(layers)):
+    for i in range(len(layers)): # 1. 각 DecoderLayer 단위로 forward pass 진행
         layer=layers[i]
         scales={} # 계산된 보정값 저장소
-        for name, module in layer.named_modules():
+        for name, module in layer.named_modules(): # 2. 각 Decoderlayer에 특정 Linear Layer의 Activation scales 값 추출
             if isinstance(module, nn.Linear):
-                for key in pairs.keys():
+                for key in pairs.keys(): # 3. 해당하는 Activation scales의 해당하는 값 추출
                     if key in name:
                         # print(name)
                         dtype=module.weight.dtype
-                        act=act_scales[f"{layer_name_prefix}.{i}.{name}"].to(device=dev,dtype=dtype).clamp(min=CLIPMIN) # activation에 통계값 load
-                        weight = module.weight.abs().max(dim=0)[0].clamp(min=CLIPMIN) # Weight에 해당 Channel의 통계값 load
-                        scale = (act.pow(args.alpha)/weight.to(act.device).pow(1-args.alpha)).clamp(min=CLIPMIN) # SmoothQuant의 수식을 바탕으로 Scaling 값 구함
-                        scales[pairs[key]]=scale # Scales라는 Dictionary에 해당 값 구함 
+                        act=act_scales[f"{layer_name_prefix}.{i}.{name}"].to(device=dev,dtype=dtype).clamp(min=CLIPMIN) # 3-1: activation에 통계값 load
+                        weight = module.weight.abs().max(dim=0)[0].clamp(min=CLIPMIN) # 3-2: Weight에 해당 Channel의 통계값 load
+                        scale = (act.pow(args.alpha)/weight.to(act.device).pow(1-args.alpha)).clamp(min=CLIPMIN) # 3-3: SmoothQuant의 수식을 바탕으로 Scaling 값 구함
+                        scales[pairs[key]]=scale # 3-4: Scales라는 Dictionary에 해당 값 구함 
 
         smooth_ln_fcs(layer.input_layernorm,[layer.self_attn.q_proj,layer.self_attn.k_proj,layer.self_attn.v_proj],scales["qkv"]) # Input Layernorm, [q_proj,k_proj,v_proj]에 적용
         smooth_ln_fcs(layer.post_attention_layernorm,[layer.mlp.gate_proj,layer.mlp.up_proj],scales["fc1"]) # post_attention_layernorm, mlp.gate_proj,mlp.up_proj의 적용

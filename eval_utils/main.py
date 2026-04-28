@@ -59,7 +59,7 @@ def ptq_model(args, model, log,model_args=None):
 
         utils.cleanup_memory(verbos=True)
 
-        quant_utils.add_actquant(model)  # Add Activation Wrapper to the model
+        quant_utils.add_actquant(model,percolumn=args.per_column)  # Add Activation Wrapper to the model
         qlayers = quant_utils.find_qlayers(model) # Quantized 된 layer의 dictionary format을 만든 {name: ActQuantWrapper}
         # print(qlayers)
         for name in qlayers:
@@ -105,7 +105,7 @@ def ptq_model(args, model, log,model_args=None):
     else:
         log.info("Rotation Not applied")
         quant_utils.add_actquant(
-            model
+            model, percolumn=args.per_column
         )  # Add Activation Wrapper to the model as the rest of the code assumes it is present
 
     if args.w_bits < 16:

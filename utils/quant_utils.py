@@ -90,13 +90,13 @@ class ActQuantizer(torch.nn.Module):
     for the activations.
     """
 
-    def __init__(self) -> None:
+    def __init__(self,percolumn) -> None:
         super(ActQuantizer, self).__init__()
         self.register_buffer("maxq", torch.tensor(0))
         self.register_buffer("scale", torch.zeros(1))
         self.register_buffer("zero", torch.zeros(1))
         self.bits = 16
-
+        self.percolumn = percolumn
     def free(self) -> None:
         self.zero = None
         self.scale = None
@@ -169,33 +169,48 @@ class ActQuantizer(torch.nn.Module):
 
         reshaped_x = x.reshape((-1, x.shape[-1]))# [BATCH*SEQ, HIDDEN_DIM]
 
-        tmp = torch.zeros(reshaped_x.shape[0], device=dev) # [BATCH*SEQ]
-        xmin = torch.minimum(reshaped_x.min(1)[0], tmp) * self.clip_ratio # [BATCH*SEQ,]
-        xmax = torch.maximum(reshaped_x.max(1)[0], tmp) * self.clip_ratio # [BATCH*SEQ ]
+        # --- 수정 포인트 시작 ---
+        if self.percolumn:
+            # Column 단위: dim=0 (Token 방향으로 스캔하여 각 Channel의 통계를 구함)
+            dim_to_reduce = 0
+            repeat_shape = (reshaped_x.shape[0], 1) # [Tokens, 1] 방향으로 확장
+            unsqueeze_dim = 0
+        else:
+            # Per-token(Row) 단위: dim=1 (Channel 방향으로 스캔하여 각 Token의 통계를 구함)
+            dim_to_reduce = 1
+            repeat_shape = (1, reshaped_x.shape[-1]) # [1, Hidden] 방향으로 확장
+            unsqueeze_dim = 1
+
+        # 통계값 추출
+        # xmin/xmax의 Shape: percolumn ? [HIDDEN_DIM] : [BATCH*SEQ]
+        tmp_zeros = torch.zeros(reshaped_x.shape[1] if self.percolumn else reshaped_x.shape[0], device=dev)
+        xmin = torch.minimum(reshaped_x.min(dim_to_reduce)[0], tmp_zeros) * self.clip_ratio
+        xmax = torch.maximum(reshaped_x.max(dim_to_reduce)[0], tmp_zeros) * self.clip_ratio
+        # --- 수정 포인트 끝 ---
+
         if self.sym:
             xmax = torch.maximum(torch.abs(xmin), xmax) 
-            tmp = xmax == 0
-            self.scale = (xmax / self.maxq).unsqueeze(1).repeat(1, reshaped_x.shape[-1]) # [BATCH*SEQ,HIDDEN_DIM]
-            self.scale[tmp] = 1 # 1. Element wise Comparison 2. Assign value 1 for elements whose original value is 1
-            self.scale = self.scale.reshape(init_shape) # [Batch,Seq, Hidden_dim]
-            self.zero = torch.zeros_like(self.scale) # [BATCH,SEQ,HIDDEN_DIM]
+            invalid_mask = xmax == 0
+            
+            # Scale 계산 및 확장
+            # percolumn이면 [1, HIDDEN_DIM]로 만든 후 Token 방향(repeat_shape[0])으로 복사
+            # per-token이면 [BATCH*SEQ, 1]로 만든 후 Hidden 방향(repeat_shape[1])으로 복사
+            scale = (xmax / self.maxq).unsqueeze(unsqueeze_dim).repeat(repeat_shape)
+            scale[invalid_mask.unsqueeze(unsqueeze_dim).repeat(repeat_shape)] = 1
+            
+            self.scale = scale.reshape(init_shape)
+            self.zero = torch.zeros_like(self.scale)
         else:
-            tmp = (xmin == 0) & (xmax == 0)
-            xmin[tmp] = -1
-            xmax[tmp] = +1
-            self.scale = (xmax - xmin) / self.maxq
-            self.zero = torch.round(-xmin / self.scale)
-
-            self.scale = (
-                self.scale.unsqueeze(1)
-                .repeat(1, reshaped_x.shape[-1])
-                .reshape(init_shape)
-            )
-            self.zero = (
-                self.zero.unsqueeze(1)
-                .repeat(1, reshaped_x.shape[-1])
-                .reshape(init_shape)
-            )
+            # 비대칭(Asymmetric) 로직도 동일한 방식으로 적용
+            invalid_mask = (xmin == 0) & (xmax == 0)
+            xmin[invalid_mask] = -1
+            xmax[invalid_mask] = +1
+            
+            scale = (xmax - xmin) / self.maxq
+            zero = torch.round(-xmin / scale)
+            
+            self.scale = scale.unsqueeze(unsqueeze_dim).repeat(repeat_shape).reshape(init_shape)
+            self.zero = zero.unsqueeze(unsqueeze_dim).repeat(repeat_shape).reshape(init_shape)
 
 
 class ActQuantWrapper(torch.nn.Module):
@@ -207,14 +222,14 @@ class ActQuantWrapper(torch.nn.Module):
     a pre-forward hook will be registered to rotate the activation before quantization.
     """
 
-    def __init__(self, module: torch.nn.Linear) -> None:
+    def __init__(self, module: torch.nn.Linear,percolumn) -> None:
         super(ActQuantWrapper, self).__init__()
         # assert isinstance(module, torch.nn.Linear)
         self.module = module
         self.weight = module.weight
         self.bias = module.bias
-        self.quantizer = ActQuantizer()
-        self.out_quantizer = ActQuantizer()
+        self.quantizer = ActQuantizer(percolumn)
+        self.out_quantizer = ActQuantizer(percolumn)
         self.register_buffer("had_K", torch.tensor(0))
         self._buffers["had_K"] = None
         self.K = 1
@@ -331,6 +346,7 @@ class WeightQuantizer(torch.nn.Module):
     def configure(
         self,
         bits,
+        percolumn:  bool = False,
         perchannel: bool = False,
         sym: bool = True,
         mse: bool = False,
@@ -341,6 +357,7 @@ class WeightQuantizer(torch.nn.Module):
     ) -> None:
         self.bits = bits
         self.perchannel = perchannel
+        self.percolumn = percolumn
         self.sym = sym
         self.mse = mse
         self.norm = norm
@@ -379,7 +396,7 @@ class WeightQuantizer(torch.nn.Module):
             best = torch.full(
                 [x.shape[0], x.shape[1]], float("inf"), device=x.device
             ).type_as(x)
-            for i in range(int(self.maxshrink * self.grid)): # 여러 Grid안에서 Search를 진행한다 range(0,80)
+            for i in range(int(self.maxshrink * self.grid)): # 여러 Grid: 격자점간의 간격, MaxShrink: 최대 몇 격자점 단위로 shrink 되는지
                 p = 1 - i / self.grid
                 xmin1 = p * xmin
                 xmax1 = p * xmax
@@ -416,7 +433,7 @@ class WeightQuantizer(torch.nn.Module):
         dev = x.device
         self.maxq = self.maxq.to(dev)
 
-        shape = x.shape
+        shape = x.shape # [out_dim, in_dim]
 
         if self.weight_groupsize > 0:
             # group-wise per-token quantization
@@ -424,13 +441,16 @@ class WeightQuantizer(torch.nn.Module):
             cleanup_memory(verbos=False)
             return
         elif self.perchannel:
-            x = x.flatten(1) # Perchannel인 경우  
+            x = x.flatten(1) # Perchannel인 경우
+            if self.percolumn: # Column 단위로 Quantization을 하는 경우
+                x = x.transpose(1,0) 
         else:
             x = x.flatten().unsqueeze(0) # 
 
-        tmp = torch.zeros(x.shape[0], device=dev) # per_channel인 경우 [out_dim]
-        xmin = torch.minimum(x.min(1)[0], tmp)  # [out_dim] 
-        xmax = torch.maximum(x.max(1)[0], tmp)  # [out_dim]
+
+        tmp = torch.zeros(x.shape[0], device=dev) # per_channel인 경우 [out_dim] per-column을 적용한 경우 [in_dim]
+        xmin = torch.minimum(x.min(1)[0], tmp)  # [out_dim]  per-column을 적용한 경우 [in_dim]
+        xmax = torch.maximum(x.max(1)[0], tmp)  # [out_dim]  per-column을 적용한 경우 [in_dim]
 
         if self.sym:
             xmax = torch.maximum(torch.abs(xmin), xmax).clamp(min=1e-5)
@@ -445,10 +465,10 @@ class WeightQuantizer(torch.nn.Module):
 
         if self.mse:
             best = torch.full([x.shape[0]], float("inf"), device=dev)
-            for i in range(int(self.maxshrink * self.grid)):
+            for i in range(int(self.maxshrink * self.grid)): # grid: 한 격자점의 간격, Maxshrink: 최대 멀어지는 간격의 크기
                 p = 1 - i / self.grid
-                xmin1 = p * xmin # [out_dim]
-                xmax1 = p * xmax # [out_dim]
+                xmin1 = p * xmin # [out_dim] , per-column [in_dim]
+                xmax1 = p * xmax # [out_dim], per-column [in_dim]
 
                 if self.sym: # []
                     scale1 = xmax1 / self.maxq
@@ -470,10 +490,15 @@ class WeightQuantizer(torch.nn.Module):
                     best[tmp] = err[tmp]
                     self.scale[tmp] = scale1[tmp]
                     self.zero[tmp] = zero1[tmp]
+
         if not self.perchannel:
             tmp = shape[0]
             self.scale = self.scale.repeat(tmp)
             self.zero = self.zero.repeat(tmp)
+
+        # if self.percolumn:
+        #     self.scale = self.scale.reshape(1,-1)
+        #     self.zero = self.zero.reshape(1,-1)
 
         shape = [-1] + [1] * (len(shape) - 1)
         self.scale = self.scale.reshape(shape)
@@ -493,11 +518,16 @@ class WeightQuantizer(torch.nn.Module):
 
     # Return int value and scale in addtional to fake quantized weight
     def fake_quantize(self, x):
+        if self.percolumn:
+            x=x.transpose(1,0)
         x_dtype = x.dtype
         if self.ready() and self.bits < 16:
             scale = self.scale.to(x.device)
             q = torch.clamp(torch.round(x / scale), -(self.maxq + 1), self.maxq)
-            return (scale * q).to(x_dtype), q, scale
+            out = (scale * q).to(x_dtype)
+            if self.percolumn:
+                out = out.transpose(0, 1)
+            return out, q, scale
         else:
             return None, None, None
 
@@ -517,18 +547,19 @@ def add_actquant(
         ActQuantWrapper,
         transformers.models.falcon.modeling_falcon.FalconLinear,
     ],
+    percolumn: bool=False
 ) -> None:
     if isinstance(module, ActQuantWrapper):
         return
     for attr in dir(module): # 입력인자로 들어온 module안에 모든 변수와 메소드를 가지고 와줌
         tmp = getattr(module, attr)
         if type(tmp) in layers:
-            setattr(module, attr, ActQuantWrapper(tmp)) # 해당 모듈의 속성 값을 ActQuantWrapper로 설정한다
+            setattr(module, attr, ActQuantWrapper(tmp,percolumn)) # 해당 모듈의 속성 값을 ActQuantWrapper로 설정한다
         if type(tmp) is torch.nn.Sequential: # 해당 멤버변수의 Type이 nn.Sequential인 경우
             replaced = []
             for i, child in enumerate(tmp.children()):
                 if type(child) in layers:
-                    replaced.append(ActQuantWrapper(child))
+                    replaced.append(ActQuantWrapper(child,percolumn))
                 else:
                     replaced.append(child)
             setattr(module, attr, torch.nn.Sequential(*replaced))
@@ -536,7 +567,7 @@ def add_actquant(
             replaced = []
             for i, child in enumerate(tmp.children()):
                 if type(child) in layers:
-                    replaced.append(ActQuantWrapper(child))
+                    replaced.append(ActQuantWrapper(child,percolumn))
                 else:
                     replaced.append(child)
             setattr(module, attr, torch.nn.ModuleList(replaced))

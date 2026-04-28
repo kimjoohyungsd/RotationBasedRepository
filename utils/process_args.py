@@ -144,6 +144,16 @@ def parser_gen():
         help="Apply Hadamard rotation in FP32 (default: False)",
     )
 
+    parser.add_argument(
+        '--per_column',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help = (
+        "Apply channel-wise quantization. For GEMM, it uses independent scales for "
+        "Weight rows [Out_dim] and Activation rows [Token]. This reduces error caused "
+        "by outliers in specific channels."
+            )
+    )   
     # Activation Quantization Arguments
     parser.add_argument(
         "--a_bits",

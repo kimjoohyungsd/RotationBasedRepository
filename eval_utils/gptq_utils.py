@@ -326,9 +326,9 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
 
     for i in tqdm.tqdm(range(len(layers)), desc="(RtN Quant.) Layers"):
         original_device = next(layers[i].parameters()).device
-        layer = layers[i].cpu()
+        layer = layers[i].to(original_device)
 
-        subset = quant_utils.find_qlayers(
+        subset = quant_utils.find_qlayers( # Step 1: 각 decoderLayer에서 nn.Linear하고 nn.Embedding의 {name: module}
             layer, layers=[torch.nn.Linear, torch.nn.Embedding]
         )
 
@@ -346,6 +346,7 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
             quantizer = quant_utils.WeightQuantizer()
             quantizer.configure(
                 layer_weight_bits,
+                percolumn=args.per_column,
                 perchannel=True,
                 sym=not (args.w_asym),
                 mse=args.w_clip,

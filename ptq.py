@@ -22,6 +22,8 @@ import transformers
 
 from eval_utils.main import ptq_model
 from eval_utils.modeling_llama import LlamaForCausalLM
+from eval_utils.modeling_qwen2 import Qwen2ForCausalLM # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+
 from utils import data_utils, eval_utils, utils
 from utils.process_args import process_args_ptq
 
@@ -46,13 +48,23 @@ def train() -> None:
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
 
     device_map = "auto" if ptq_args.distribute else None
-    model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
-        pretrained_model_name_or_path=model_args.input_model,
-        config=config,
-        torch_dtype=dtype,
-        token=model_args.access_token,
-        device_map=device_map
-    )
+    model_args.net= = model_args.input_model.split('/')[-1]
+    if 'Llama' in model_args.net:
+        model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+            pretrained_model_name_or_path=model_args.input_model,
+            config=config,
+            torch_dtype=dtype,
+            token=model_args.access_token,
+            device_map=device_map
+        )
+    elif 'Qwen' in model_args.net:
+        model = Qwen2ForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+            pretrained_model_name_or_path=model_args.input_model,
+            config=config,
+            torch_dtype=dtype,
+            token=model_args.access_token,
+            device_map=device_map
+        )
 
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
@@ -71,6 +83,9 @@ def train() -> None:
     w_groupsize = ptq_args.w_groupsize if ptq_args.w_groupsize != -1 else "per-channel"
     kv_groupsize = ptq_args.k_groupsize if ptq_args.k_groupsize != -1 else 128
     log.info("Quantization group size W: {}, A: {}, KV: {}".format(a_groupsize,w_groupsize,kv_groupsize))
+    
+    if ptq_args.per_column:
+        log.info("Quantization is done on column wise manner")
 
     model = ptq_model(ptq_args, model, log, model_args) # 
     model.seqlen = training_args.model_max_length
@@ -113,36 +128,56 @@ def train() -> None:
         log.info("wiki2 ppl is: {}".format(dataset_ppl))
         # dist.barrier()
 
-    if not ptq_args.lm_eval:
-        log.info("Skipping LM_eval task")
 
-    # Setup wandb (only once)
-    
-    else:
-        # Import lm_eval utils
+    if ptq_args.lm_eval:
         import lm_eval
         from lm_eval import utils as lm_eval_utils
-        from lm_eval.api.registry import ALL_TASKS
         from lm_eval.models.huggingface import HFLM
-        wandb_run = utils.setup_wandb(model_args.input_model,ptq_args) if local_rank == 0 else None
 
-        model.cuda()
         hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
 
-        # task_names = lm_eval_utils.pattern_match(ptq_args.tasks, ALL_TASKS)
-        try:
-            results = lm_eval.simple_evaluate(hflm, tasks=ptq_args.tasks, batch_size=ptq_args.lm_eval_batch_size)['results']
+        task_names = ptq_args.tasks
 
-            metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
-            metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
-            print(metric_vals)
-        except Exception as e:
-            wandb.log(f"Error during zero-shot evaluation with lm_eval harness: {e}")
-        if ptq_args.wandb:
-            wandb.log(metric_vals)
+        results = {}
+        for task_name in task_names:
+            logger.info(f"Evaluating {task_name}...")
+            result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
+            result = result[task_name]
+            acc = round(result.get('acc_norm,none', result['acc,none']) * 100, 2)
+            results[task_name] = acc
+            logger.info(f"acc: {acc}%")
+        metric_vals = {task: result for task, result in results.items()}
+        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
+    # if not ptq_args.lm_eval:
+    #     log.info("Skipping LM_eval task")
 
-        if wandb_run:
-            wandb_run.finish()
+    # # Setup wandb (only once)
+    
+    # else:
+    #     # Import lm_eval utils
+    #     import lm_eval
+    #     from lm_eval import utils as lm_eval_utils
+    #     from lm_eval.api.registry import ALL_TASKS
+    #     from lm_eval.models.huggingface import HFLM
+    #     wandb_run = utils.setup_wandb(model_args.input_model,ptq_args) if local_rank == 0 else None
+
+    #     model.cuda()
+    #     hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
+
+    #     # task_names = lm_eval_utils.pattern_match(ptq_args.tasks, ALL_TASKS)
+    #     try:
+    #         results = lm_eval.simple_evaluate(hflm, tasks=ptq_args.tasks, batch_size=ptq_args.lm_eval_batch_size)['results']
+
+    #         metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
+    #         metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
+    #         print(metric_vals)
+    #     except Exception as e:
+    #         wandb.log(f"Error during zero-shot evaluation with lm_eval harness: {e}")
+    #     if ptq_args.wandb:
+    #         wandb.log(metric_vals)
+
+    #     if wandb_run:
+    #         wandb_run.finish()
 
 if __name__ == "__main__":
     train()
