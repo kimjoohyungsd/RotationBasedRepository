@@ -72,7 +72,14 @@ def parser_gen():
                         out-projection. Note that this does not apply rotation to the K/Q and they will be rotated
                         if we want to quantize the Keys""",
     )
-
+    parser.add_argument(
+        '--offload',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help = (
+        "When Rotating the model, this option will offload weight tensor to CPU, 2) Apply Matmul in CPU 3) and send rotated weights back to original device"
+            )
+    )
     # Slider Quant의 아이디어를 바탕으로 하여 실제 R3나 R4를 적용할 Rotation Matrix를 지정 하자
     parser.add_argument(
         "--target_layer_indices", 

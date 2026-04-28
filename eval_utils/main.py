@@ -49,7 +49,7 @@ def ptq_model(args, model, log,model_args=None):
             fuse_norm_utils.fuse_layer_norms(model) #
             log.info("LayerNorm Fusion Applied For R1 Transform")
 
-        rotation_utils.rotate_model(model, args)
+        rotation_utils.rotate_model(model, args,model_args)
         if not args.deactivate_r4:
             log.info("Applying R4 Transform")
             apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함

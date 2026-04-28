@@ -52,7 +52,7 @@ def get_orthogonal_matrix(size, mode, device="cuda"):
         raise ValueError(f"Unknown mode {mode}")
 
 
-def rotate_embeddings(model, R1: torch.Tensor, args) -> None:
+def rotate_embeddings(model, R1: torch.Tensor, args,model_args) -> None:
     # Rotate the embeddings.
     # print("Rotate Embeddings")
     for W in [model.model.embed_tokens]:
@@ -61,54 +61,99 @@ def rotate_embeddings(model, R1: torch.Tensor, args) -> None:
         else:
             dtype = W.weight.data.dtype
             dev=W.weight.device
+
+            if args.offload:
+                # CPU Offloading 모드 (VRAM 절약형)
+                calc_device = "cpu"
+                calc_dtype = torch.float64
+            else:
+                # GPU Direct 모드 (속도 최적화형)
+                calc_device = dev
+                # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+                calc_dtype = torch.float32
+
             # dev = R1.device
-            W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1.cpu()).to(device=dev, dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
+            W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+            W.weight.data = torch.matmul(W_, R1.to(device=calc_device,dtype=calc_dtype)).to(device=dev, dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
+            if calc_device != "cpu":
+                torch.cuda.empty_cache()
             # R1.to(dev)
 
-def rotate_attention_inputs(layer, R1, diagonal) -> None:
+def rotate_attention_inputs(layer, R1, args) -> None:
     # Rotate the WQ, WK and WV matrices of the self-attention layer.
     # print("Attention Inputs")
     for W in [layer.self_attn.q_proj, layer.self_attn.k_proj, layer.self_attn.v_proj]:
-        if diagonal:
+        if args.diagonal:
             apply_exact_had_to_linear(W,had_dim = R1.shape[1],Dim0=False,Matrix=R1) # W @ R1
         else: 
             dtype = W.weight.dtype
-            dev=W.weight.device
-            W_ = W.weight.to(device="cpu", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1.cpu()).to(device=dev, dtype=dtype)
+            dev = W.weight.device
+
+            if args.offload:
+                # CPU Offloading 모드 (VRAM 절약형)
+                calc_device = "cpu"
+                calc_dtype = torch.float64
+            else:
+                # GPU Direct 모드 (속도 최적화형)
+                calc_device = dev
+                # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+                calc_dtype = torch.float32
+
+            W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+            W.weight.data = torch.matmul(W_, R1.to(device=calc_device,dtype=calc_dtype)).to(device=dev, dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
+            if calc_device != "cpu":
+                torch.cuda.empty_cache()
 
 
-def rotate_attention_output(layer, R1, diagonal) -> None:
+def rotate_attention_output(layer, R1, args) -> None:
     # Rotate output matrix of the self-attention layer.
     # print("Attention Output")
     W = layer.self_attn.o_proj
-    if diagonal:
+    if args.diagonal:
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W.T@R1)T
     else:
         dtype = W.weight.data.dtype
         dev = W.weight.device
-        W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
-        W.weight.data = torch.matmul(R1.T.cpu(), W_).to(device=dev, dtype=dtype)
+        if args.offload:
+            # CPU Offloading 모드 (VRAM 절약형)
+            calc_device = "cpu"
+            calc_dtype = torch.float64
+        else:
+            # GPU Direct 모드 (속도 최적화형)
+            calc_device = dev
+            # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+            calc_dtype = torch.float32
+        W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+        W.weight.data = torch.matmul(R1.to(device=calc_device,dtype=calc_dtype).T, W_).to(device=dev, dtype=dtype)
         
     if W.bias is not None:
-        b = W.bias.data.to(device="cpu", dtype=torch.float64)
+        b = W.bias.data.to(device=calc_device, dtype=calc_dtype)
         dev = W.weight.device
-        W.bias.data = torch.matmul(R1.T, b).to(device=dev, dtype=dtype)
+        W.bias.data = torch.matmul(R1.to(device=calc_device,dtype=calc_dtype).T, b).to(device=dev, dtype=dtype)
 
 
-def rotate_mlp_input(layer, R1,diagonal):
+def rotate_mlp_input(layer, R1,args):
     # Rotate the MLP input weights.
     mlp_inputs = [layer.mlp.up_proj, layer.mlp.gate_proj]
     # print("MLP Inputs")
     for W in mlp_inputs:
-        if diagonal:
+        if args.diagonal:
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=False,Matrix=R1)
         else: 
             dtype = W.weight.dtype
             dev = W.weight.device
-            W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
-            W.weight.data = torch.matmul(W_, R1.cpu()).to(device=dev, dtype=dtype)
+
+            if args.offload:
+                # CPU Offloading 모드 (VRAM 절약형)
+                calc_device = "cpu"
+                calc_dtype = torch.float64
+            else:
+                # GPU Direct 모드 (속도 최적화형)
+                calc_device = dev
+                # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+                calc_dtype = torch.float32
+            W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+            W.weight.data = torch.matmul(W_,R1.to(device=calc_device,dtype=calc_dtype)).to(device=dev, dtype=dtype)
 
 
 def rotate_mlp_output(layer, R1, diagonal):
@@ -120,14 +165,24 @@ def rotate_mlp_output(layer, R1, diagonal):
     else:
         dtype = W.weight.data.dtype
         dev = W.weight.device
-        W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
-        W.weight.data = torch.matmul(R1.T.cpu(), W_).to(device=dev, dtype=dtype)
-    # apply_exact_had_to_linear(
-    #     W, had_dim=-1, output=False,transpose=True
-    # )  # apply exact (inverse) hadamard on the weights of mlp output (Hadamard Matrix를 정확하게 구현하자)
-    if W.bias is not None:
-        b = W.bias.data.to(device="cuda", dtype=torch.float64)
-        W.bias.data = torch.matmul(R1.T, b).to(device=dev, dtype=dtype)
+
+        if args.offload:
+            # CPU Offloading 모드 (VRAM 절약형)
+            calc_device = "cpu"
+            calc_dtype = torch.float64
+        else:
+            # GPU Direct 모드 (속도 최적화형)
+            calc_device = dev
+            # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+            calc_dtype = torch.float32
+
+        W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+        W.weight.data = torch.matmul(R1.to(device=calc_device,dtype=calc_dtype).T, W_).to(device=dev, dtype=dtype)
+        
+        if W.bias is not None:
+            b = W.bias.data.to(device=calc_device, dtype=calc_dtype)
+            dev = W.weight.device
+            W.bias.data = torch.matmul(R1.to(device=calc_device,dtype=calc_dtype).T, b).to(device=dev, dtype=dtype)
 
 
 def rotate_head(model, R1: torch.Tensor,args) -> None:
@@ -139,9 +194,21 @@ def rotate_head(model, R1: torch.Tensor,args) -> None:
     else:
         dtype = W.weight.data.dtype
         dev = W.weight.device
-        W_ = W.weight.data.to(device="cpu", dtype=torch.float64)
-        W.weight.data = torch.matmul(W_, R1.cpu()).to(device=dev, dtype=dtype)
-        R1.to(dev)
+        if args.offload:
+            # CPU Offloading 모드 (VRAM 절약형)
+            calc_device = "cpu"
+            calc_dtype = torch.float64
+        else:
+            # GPU Direct 모드 (속도 최적화형)
+            calc_device = dev
+            # GPU에서는 float64보다 float32가 훨씬 빠릅니다. 정밀도가 아주 민감하지 않다면 f32 권장
+            calc_dtype = torch.float32
+
+        W_ = W.weight.data.to(device=calc_device, dtype=calc_dtype)
+        W.weight.data = torch.matmul(W_, R1.to(device=calc_device,dtype=calc_dtype)).to(device=dev, dtype=dtype) # 기존이랑 다르게 Rotation을 적용해야 하는 것으로 보임
+
+        if calc_device != "cpu":
+            torch.cuda.empty_cache()
 
 
 def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
@@ -159,11 +226,13 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
 
 
 @torch.inference_mode()
-def rotate_model(model, args):
+def rotate_model(model, args,model_args=None):
+
     if args.diagonal: 
         R1 = get_orthogonal_matrix(args.diagonal_size,args.rotate_mode)
     else:
         R1 = get_orthogonal_matrix(model.config.hidden_size, args.rotate_mode)
+
     if args.optimized_rotation_path is not None:
         R_cpk = args.optimized_rotation_path
         R1 = torch.load(R_cpk)["R1"].cuda().to(torch.float64)
@@ -174,7 +243,7 @@ def rotate_model(model, args):
 
     # Rotation을 함에 있어서도 Diagonal 한 특성을 고려해서 Rotation을 진행한
     if (not args.deactivate_r1):
-        rotate_embeddings(model,R1,args) 
+        rotate_embeddings(model,R1,args,model_args) 
         rotate_head(model,R1,args)
 
     utils.cleanup_memory()
@@ -201,10 +270,10 @@ def rotate_model(model, args):
                 rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2,online_r2=online_r2)    
                 
         if (not args.deactivate_r1):
-            rotate_attention_inputs(layers[idx], R1, args.diagonal)
-            rotate_attention_output(layers[idx], R1, args.diagonal)
-            rotate_mlp_input(layers[idx], R1, args.diagonal)
-            rotate_mlp_output(layers[idx], R1, args.diagonal)
+            rotate_attention_inputs(layers[idx], R1, args)
+            rotate_attention_output(layers[idx], R1, args)
+            rotate_mlp_input(layers[idx], R1, args)
+            rotate_mlp_output(layers[idx], R1, args)
         # rotate_ov_proj(layers[idx], num_heads, head_dim, R2=R2)
 
 

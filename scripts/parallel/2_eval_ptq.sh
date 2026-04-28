@@ -37,7 +37,7 @@ for i in "${!MODELS[@]}"; do
         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
         --w_bits 4 --a_bits 4 --k_bits 16 --v_bits 16 \
         --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
-        --rotate  --online_r2 --wikitext2 --w_rtn > "/home/jhkcool97/RotationBasedRepository/outputs/log_${MODEL_NAME}_{R4}.txt" 2>&1 &
+        --rotate  --online_r2 --wikitext2 --w_rtn --w_clip > "/home/jhkcool97/RotationBasedRepository/outputs/log_${MODEL_NAME}_{R4}.txt" 2>&1 &
     
     PIDS+=($!)
 done
