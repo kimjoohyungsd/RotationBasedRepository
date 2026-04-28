@@ -10,7 +10,7 @@ from logging import Logger
 
 import torch
 # import torch.distributed as dist
-from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast # LlamaForCausalLM, pipeline
+from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast,AutoTokenizer # LlamaForCausalLM, pipeline
 import transformers
 
 # import lm_eval
@@ -48,7 +48,7 @@ def train() -> None:
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
 
     device_map = "auto" if ptq_args.distribute else None
-    model_args.net= = model_args.input_model.split('/')[-1]
+    model_args.net= model_args.input_model.split('/')[-1]
     if 'Llama' in model_args.net:
         model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
             pretrained_model_name_or_path=model_args.input_model,
@@ -100,6 +100,17 @@ def train() -> None:
         add_eos_token=False,
         add_bos_token=False,
         token=model_args.access_token,
+        )
+    elif 'Qwen' in model_args.input_model:
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_name_or_path=model_args.input_model,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            use_fast=True,
+            add_eos_token=False,
+            add_bos_token=False,
+            token=model_args.access_token,
         )
     else:
         tokenizer = LlamaTokenizerFast.from_pretrained(
