@@ -156,11 +156,11 @@ def rotate_mlp_input(layer, R1,args):
             W.weight.data = torch.matmul(W_,R1.to(device=calc_device,dtype=calc_dtype)).to(device=dev, dtype=dtype)
 
 
-def rotate_mlp_output(layer, R1, diagonal):
+def rotate_mlp_output(layer, R1, args):
     # Rotate the MLP output weights and bias.
     # print("MLP outputs")
     W = layer.mlp.down_proj
-    if diagonal:
+    if args.diagonal:
             apply_exact_had_to_linear(W,had_dim=R1.shape[1],Dim0=True,Matrix=R1) # (W1.T @ R1)T => R1.T @ W1
     else:
         dtype = W.weight.data.dtype

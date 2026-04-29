@@ -165,8 +165,8 @@ def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transp
     assert isinstance(module, torch.nn.Linear) or isinstance(module,torch.nn.Embedding)
     dim0, dim1 = _get_module_dims(module)
 
-    if had_dim != -1:
-        assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
+    # if had_dim != -1:
+    #     assert is_pow2(had_dim), "Hadamard dimension must be a power of 2!"
 
     W_ = module.weight.data
     dtype = W_.dtype
