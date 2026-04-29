@@ -5,6 +5,16 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
+cleanup() {
+    echo ""
+    echo "!!! Keyboard Interrupt detected. Terminating python processes... !!!"
+    # 현재 스크립트가 실행한 자식 프로세스 그룹을 종료
+    # 'jobs -p'로 현재 실행 중인 자식 PID를 받아와서 죽입니다.
+    pkill -P $$ 
+    exit 1
+}
+
+trap cleanup SIGINT
 # 2. 인자 할당
 # $1은 첫 번째 인자 (GPU 번호), $2는 두 번째 인자 (모델 경로)
 CUDA_DEVICES=$1
