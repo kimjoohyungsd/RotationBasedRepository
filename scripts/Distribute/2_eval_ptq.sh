@@ -1,0 +1,56 @@
+# 1. 인자 확인 (인자가 2개가 아니면 사용법을 출력하고 종료)
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <CUDA_VISIBLE_DEVICES> <MODEL_PATH>"
+    echo "Example: $0 0,1,2,3 meta-llama/Llama-2-7b-hf"
+    exit 1
+fi
+
+# 2. 인자 할당
+# $1은 첫 번째 인자 (GPU 번호), $2는 두 번째 인자 (모델 경로)
+CUDA_DEVICES=$1
+MODEL_PATH=$2
+MODEL_NAME=$(basename "$MODEL_PATH")
+OUTPUT_DIR="/home/jhkcool97/RotationBasedRepository/outputs"
+
+# 디렉토리 생성 확인
+mkdir -p "$OUTPUT_DIR"
+
+# -------------------------------------------------------------------------
+# 실험 1: 모든 Option 실행
+echo "Starting Experiment 1: R4 Option on GPUs $CUDA_DEVICES"
+CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
+    --input_model "$MODEL_PATH" \
+    --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    --w_bits 4 --a_bits 4 --k_bits 16 --v_bits 16 \
+    --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+    --rotate --distribute --online_r2 --wikitext2 --w_rtn \
+    > "${OUTPUT_DIR}/log_${MODEL_NAME}_All_Rotations.txt" 2>&1
+
+echo "Experiment 1 finished. Starting Experiment 2: No R4 Option"
+
+# 실험 2: No R4 Option 실행
+CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
+    --input_model "$MODEL_PATH" \
+    --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    --w_bits 4 --a_bits 4 --k_bits 16 --v_bits 16 \
+    --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+    --rotate --distribute --online_r2 --deactivate_r4 --wikitext2 --w_rtn \
+    > "${OUTPUT_DIR}/log_${MODEL_NAME}_No_R4.txt" 2>&1
+
+# 실험 3: No R2 Option 실행
+CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
+    --input_model "$MODEL_PATH" \
+    --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    --w_bits 4 --a_bits 4 --k_bits 16 --v_bits 16 \
+    --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+    --rotate --distribute --deactivate_r2 --wikitext2 --w_rtn \
+    > "${OUTPUT_DIR}/log_${MODEL_NAME}_No_R2.txt" 2>&1
+
+# 실험 4: No R1 Option 실행
+CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
+    --input_model "$MODEL_PATH" \
+    --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    --w_bits 4 --a_bits 4 --k_bits 16 --v_bits 16 \
+    --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+    --rotate --distribute --deactivate_r1 --online_r2 --wikitext2 --w_rtn \
+    > "${OUTPUT_DIR}/log_${MODEL_NAME}_No_R1.txt" 2>&1
