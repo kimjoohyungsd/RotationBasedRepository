@@ -27,7 +27,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # -------------------------------------------------------------------------
 # 실험 1: 모든 Option 실행
-echo "Starting Experiment 1: R4 Option on GPUs $CUDA_DEVICES"
+echo "Starting Experiment 1: R4 Option on GPUs $CUDA_DEVICE.S"
 CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
     --input_model "$MODEL_PATH" \
     --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
