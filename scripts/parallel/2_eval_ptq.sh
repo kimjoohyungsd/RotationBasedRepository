@@ -1,4 +1,10 @@
 #!/bin/bash
+cleanup() {
+    echo ""
+    echo "!!! Keyboard Interrupt detected. Terminating python processes... !!!"
+    pkill -P $$ 
+    exit 1
+}
 
 # MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "Qwen/Qwen2.5-7B" )
 MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B"  )

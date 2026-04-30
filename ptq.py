@@ -144,7 +144,9 @@ def train() -> None:
         import lm_eval
         from lm_eval import utils as lm_eval_utils
         from lm_eval.models.huggingface import HFLM
-
+        
+        if not ptq_args.distribute:
+            model.cuda() # 모델을 GPU로 옮긴다
         hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
 
         task_names = ptq_args.tasks
