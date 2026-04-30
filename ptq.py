@@ -141,7 +141,7 @@ def train() -> None:
         )
     log.info("Complete tokenizer loading...")
     
-
+    results = {}
     if ptq_args.wikitext2:
         model.config.use_cache = False
         testloader = data_utils.get_wikitext2( 
@@ -153,6 +153,7 @@ def train() -> None:
 
         dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
         log.info("wiki2 ppl is: {}".format(dataset_ppl))
+        results['wiki2_ppl'] = dataset_ppl
         # dist.barrier()
 
 
@@ -167,7 +168,7 @@ def train() -> None:
 
         task_names = ptq_args.tasks
 
-        results = {}
+        
         for task_name in task_names:
             log.info(f"Evaluating {task_name}...")
             result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
@@ -178,6 +179,7 @@ def train() -> None:
         metric_vals = {task: result for task, result in results.items()}
         metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
         log.info(metric_vals)
+        log.info(results)
     # if not ptq_args.lm_eval:
     #     log.info("Skipping LM_eval task")
 

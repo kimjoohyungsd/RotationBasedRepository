@@ -10,7 +10,7 @@ cleanup() {
 MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B"  )
 # MODELS=( "Qwen/Qwen2.5-7B" )
 # GPUS=(5 6 7 )
-GPUS=(0 1)
+GPUS=(6 7)
 OUTPUT_BASE="/home/jhkcool97/RotationBasedRepository/outputs"
 BIT_CONFIGS=("4,8" "4,4")
 
