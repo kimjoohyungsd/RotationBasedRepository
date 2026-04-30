@@ -151,12 +151,12 @@ def train() -> None:
 
         results = {}
         for task_name in task_names:
-            logger.info(f"Evaluating {task_name}...")
+            log.info(f"Evaluating {task_name}...")
             result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
             result = result[task_name]
             acc = round(result.get('acc_norm,none', result['acc,none']) * 100, 2)
             results[task_name] = acc
-            logger.info(f"acc: {acc}%")
+            log.info(f"acc: {acc}%")
         metric_vals = {task: result for task, result in results.items()}
         metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
     # if not ptq_args.lm_eval:
