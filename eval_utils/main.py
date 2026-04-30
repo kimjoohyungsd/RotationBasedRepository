@@ -71,30 +71,30 @@ def ptq_model(args, model, log,model_args=None):
                 continue
             
             # 2. 지정된 인덱스 리스트에 포함되는지 확인
-            # is_target = False
-            # if args.target_layer_indices is not None:
-            #     if current_idx in args.target_layer_indices:
-            #         is_target = True
+            is_target = True
+            if args.target_layer_indices is not None:
+                if current_idx not in args.target_layer_indices:
+                    is_target = False
 
             # if not is_target:
             #     continue
+            if is_target:    
+                if "down_proj" in name and not args.deactivate_r4:
+                    if not args.diagonal:
+                        had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
+                        qlayers[name].online_full_had = True
+                        qlayers[name].had_K = had_K
+                        qlayers[name].K = K
+                        qlayers[name].fp32_had = args.fp32_had
+                        # qlayers[name].transpose=True
+                    else:
+                        had_K, K = hadamard_utils.get_hadK(args.diagonal_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
+                        qlayers[name].online_diagonal_had = True
+                        qlayers[name].had_K = had_K
+                        qlayers[name].K = K
+                        qlayers[name].had_dim = args.diagonal_size
+                        qlayers[name].fp32_had = args.fp32_had
                 
-            if "down_proj" in name and not args.deactivate_r4:
-                if not args.diagonal:
-                    had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
-                    qlayers[name].online_full_had = True
-                    qlayers[name].had_K = had_K
-                    qlayers[name].K = K
-                    qlayers[name].fp32_had = args.fp32_had
-                    # qlayers[name].transpose=True
-                else:
-                    had_K, K = hadamard_utils.get_hadK(args.diagonal_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 
-                    qlayers[name].online_diagonal_had = True
-                    qlayers[name].had_K = had_K
-                    qlayers[name].K = K
-                    qlayers[name].had_dim = args.diagonal_size
-                    qlayers[name].fp32_had = args.fp32_had
-
             if 'o_proj' in name and args.online_r2:
                 had_K, K = hadamard_utils.get_hadK(model.config.num_attention_heads)
                 qlayers[name].online_partial_had = True

@@ -49,6 +49,7 @@ python  ptq.py \
 --v_bits $4 \
 --k_asym \
 --v_asym \
+--a_asym \
 --k_groupsize 128 \
 --v_groupsize 128 \
 --rotate \

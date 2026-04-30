@@ -1,86 +1,17 @@
-Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:01<00:01,  1.52s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:02<00:00,  1.00it/s]Loading checkpoint shards: 100%|██████████| 2/2 [00:02<00:00,  1.08s/it]
-2026-04-30 00:18:41,534 - spinquant - INFO - Rotation applied
-2026-04-30 00:18:41,534 - spinquant - INFO - Quantization bits W: 4,A: 8, KV: 16
-2026-04-30 00:18:41,534 - spinquant - INFO - Quantization group size W: per-token, A: per-channel, KV: 128
-2026-04-30 00:18:41,537 - spinquant - INFO - R1: False, R2: True, R3: False, R4: True
-Rotating:   0%|          | 0/32 [00:00<?, ?layer/s]Rotating:   6%|▋         | 2/32 [00:00<00:01, 19.47layer/s]Rotating:  34%|███▍      | 11/32 [00:00<00:00, 59.95layer/s]Rotating:  66%|██████▌   | 21/32 [00:00<00:00, 77.02layer/s]Rotating:  97%|█████████▋| 31/32 [00:00<00:00, 84.95layer/s]Rotating: 100%|██████████| 32/32 [00:00<00:00, 76.09layer/s]
-2026-04-30 00:18:42,616 - spinquant - INFO - Applying R4 Transform
-Applying R4 rotation to W_down:   0%|          | 0/32 [00:00<?, ?layer/s]Applying R4 rotation to W_down:  22%|██▏       | 7/32 [00:00<00:00, 69.84layer/s]Applying R4 rotation to W_down: 100%|██████████| 32/32 [00:00<00:00, 164.61layer/s]
-2026-04-30 00:18:42,931 - spinquant - INFO - Online R2 rotation in QuaRot Applied
-/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/transformers/modeling_utils.py:4713: FutureWarning: `_is_quantized_training_enabled` is going to be deprecated in transformers 4.39.0. Please use `model.hf_quantizer.is_trainable` instead
+Loading checkpoint shards:   0%|          | 0/2 [00:00<?, ?it/s]Loading checkpoint shards:  50%|█████     | 1/2 [00:03<00:03,  3.87s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  2.48s/it]Loading checkpoint shards: 100%|██████████| 2/2 [00:05<00:00,  2.69s/it]
+2026-04-30 05:31:08,539 - spinquant - INFO - Rotation applied
+2026-04-30 05:31:08,539 - spinquant - INFO - Quantization bits W: 4,A: 8, KV: 16
+2026-04-30 05:31:08,539 - spinquant - INFO - Quantization group size W: per-token, A: per-channel, KV: 128
+2026-04-30 05:31:08,542 - spinquant - INFO - R1: False, R2: True, R3: False, R4: True
+Rotating:   0%|          | 0/32 [00:00<?, ?layer/s]Rotating:   3%|▎         | 1/32 [00:00<00:05,  6.13layer/s]Rotating:  34%|███▍      | 11/32 [00:00<00:00, 48.44layer/s]Rotating:  62%|██████▎   | 20/32 [00:00<00:00, 64.26layer/s]Rotating:  94%|█████████▍| 30/32 [00:00<00:00, 75.00layer/s]Rotating: 100%|██████████| 32/32 [00:00<00:00, 64.02layer/s]
+2026-04-30 05:31:09,720 - spinquant - INFO - Applying R4 Transform
+Applying R4 rotation to W_down:   0%|          | 0/32 [00:00<?, ?layer/s]Applying R4 rotation to W_down:  34%|███▍      | 11/32 [00:00<00:00, 106.49layer/s]Applying R4 rotation to W_down: 100%|██████████| 32/32 [00:00<00:00, 176.25layer/s]
+2026-04-30 05:31:10,034 - spinquant - INFO - Online R2 rotation in QuaRot Applied
+/home/jhkcool97/miniconda3/envs/FlatQuant/lib/python3.11/site-packages/transformers/modeling_utils.py:4713: FutureWarning: `_is_quantized_training_enabled` is going to be deprecated in transformers 4.39.0. Please use `model.hf_quantizer.is_trainable` instead
   warnings.warn(
-(RtN Quant.) Layers:   0%|          | 0/32 [00:00<?, ?it/s](RtN Quant.) Layers:   3%|▎         | 1/32 [00:01<00:47,  1.53s/it](RtN Quant.) Layers:   6%|▋         | 2/32 [00:02<00:43,  1.45s/it](RtN Quant.) Layers:   9%|▉         | 3/32 [00:04<00:40,  1.41s/it](RtN Quant.) Layers:  12%|█▎        | 4/32 [00:05<00:38,  1.39s/it](RtN Quant.) Layers:  16%|█▌        | 5/32 [00:07<00:37,  1.38s/it](RtN Quant.) Layers:  19%|█▉        | 6/32 [00:08<00:35,  1.38s/it](RtN Quant.) Layers:  22%|██▏       | 7/32 [00:09<00:34,  1.37s/it](RtN Quant.) Layers:  25%|██▌       | 8/32 [00:11<00:32,  1.37s/it](RtN Quant.) Layers:  28%|██▊       | 9/32 [00:12<00:31,  1.37s/it](RtN Quant.) Layers:  31%|███▏      | 10/32 [00:13<00:30,  1.37s/it](RtN Quant.) Layers:  34%|███▍      | 11/32 [00:15<00:28,  1.37s/it](RtN Quant.) Layers:  38%|███▊      | 12/32 [00:16<00:27,  1.37s/it](RtN Quant.) Layers:  41%|████      | 13/32 [00:17<00:25,  1.37s/it](RtN Quant.) Layers:  44%|████▍     | 14/32 [00:19<00:24,  1.37s/it](RtN Quant.) Layers:  47%|████▋     | 15/32 [00:20<00:23,  1.36s/it](RtN Quant.) Layers:  50%|█████     | 16/32 [00:22<00:21,  1.36s/it](RtN Quant.) Layers:  53%|█████▎    | 17/32 [00:23<00:20,  1.36s/it](RtN Quant.) Layers:  56%|█████▋    | 18/32 [00:24<00:19,  1.36s/it](RtN Quant.) Layers:  59%|█████▉    | 19/32 [00:26<00:17,  1.36s/it](RtN Quant.) Layers:  62%|██████▎   | 20/32 [00:27<00:16,  1.36s/it](RtN Quant.) Layers:  66%|██████▌   | 21/32 [00:28<00:14,  1.36s/it](RtN Quant.) Layers:  69%|██████▉   | 22/32 [00:30<00:13,  1.36s/it](RtN Quant.) Layers:  72%|███████▏  | 23/32 [00:31<00:12,  1.36s/it](RtN Quant.) Layers:  75%|███████▌  | 24/32 [00:32<00:10,  1.36s/it](RtN Quant.) Layers:  78%|███████▊  | 25/32 [00:34<00:09,  1.36s/it](RtN Quant.) Layers:  81%|████████▏ | 26/32 [00:35<00:08,  1.37s/it](RtN Quant.) Layers:  84%|████████▍ | 27/32 [00:37<00:06,  1.37s/it](RtN Quant.) Layers:  88%|████████▊ | 28/32 [00:38<00:05,  1.36s/it](RtN Quant.) Layers:  91%|█████████ | 29/32 [00:39<00:04,  1.36s/it](RtN Quant.) Layers:  94%|█████████▍| 30/32 [00:41<00:02,  1.36s/it](RtN Quant.) Layers:  97%|█████████▋| 31/32 [00:42<00:01,  1.36s/it](RtN Quant.) Layers: 100%|██████████| 32/32 [00:43<00:00,  1.36s/it](RtN Quant.) Layers: 100%|██████████| 32/32 [00:43<00:00,  1.37s/it]
-2026-04-30 00:19:27,472 - spinquant - INFO - Complete tokenizer loading...
+(RtN Quant.) Layers:   0%|          | 0/32 [00:00<?, ?it/s](RtN Quant.) Layers:   3%|▎         | 1/32 [00:01<00:47,  1.53s/it](RtN Quant.) Layers:   6%|▋         | 2/32 [00:02<00:42,  1.42s/it](RtN Quant.) Layers:   9%|▉         | 3/32 [00:04<00:40,  1.39s/it](RtN Quant.) Layers:  12%|█▎        | 4/32 [00:05<00:38,  1.38s/it](RtN Quant.) Layers:  16%|█▌        | 5/32 [00:06<00:36,  1.36s/it](RtN Quant.) Layers:  19%|█▉        | 6/32 [00:08<00:35,  1.36s/it](RtN Quant.) Layers:  22%|██▏       | 7/32 [00:09<00:33,  1.36s/it](RtN Quant.) Layers:  25%|██▌       | 8/32 [00:10<00:32,  1.36s/it](RtN Quant.) Layers:  28%|██▊       | 9/32 [00:12<00:31,  1.36s/it](RtN Quant.) Layers:  31%|███▏      | 10/32 [00:13<00:29,  1.36s/it](RtN Quant.) Layers:  34%|███▍      | 11/32 [00:15<00:28,  1.36s/it](RtN Quant.) Layers:  38%|███▊      | 12/32 [00:16<00:27,  1.35s/it](RtN Quant.) Layers:  41%|████      | 13/32 [00:17<00:25,  1.35s/it](RtN Quant.) Layers:  44%|████▍     | 14/32 [00:19<00:24,  1.35s/it](RtN Quant.) Layers:  47%|████▋     | 15/32 [00:20<00:22,  1.35s/it](RtN Quant.) Layers:  50%|█████     | 16/32 [00:21<00:21,  1.35s/it](RtN Quant.) Layers:  53%|█████▎    | 17/32 [00:23<00:20,  1.35s/it](RtN Quant.) Layers:  56%|█████▋    | 18/32 [00:24<00:18,  1.35s/it](RtN Quant.) Layers:  59%|█████▉    | 19/32 [00:25<00:17,  1.35s/it](RtN Quant.) Layers:  62%|██████▎   | 20/32 [00:27<00:16,  1.35s/it](RtN Quant.) Layers:  66%|██████▌   | 21/32 [00:28<00:14,  1.35s/it](RtN Quant.) Layers:  69%|██████▉   | 22/32 [00:29<00:13,  1.35s/it](RtN Quant.) Layers:  72%|███████▏  | 23/32 [00:31<00:12,  1.36s/it](RtN Quant.) Layers:  75%|███████▌  | 24/32 [00:32<00:10,  1.35s/it](RtN Quant.) Layers:  78%|███████▊  | 25/32 [00:33<00:09,  1.35s/it](RtN Quant.) Layers:  81%|████████▏ | 26/32 [00:35<00:08,  1.35s/it](RtN Quant.) Layers:  84%|████████▍ | 27/32 [00:36<00:06,  1.35s/it](RtN Quant.) Layers:  88%|████████▊ | 28/32 [00:38<00:05,  1.35s/it](RtN Quant.) Layers:  91%|█████████ | 29/32 [00:39<00:04,  1.35s/it](RtN Quant.) Layers:  94%|█████████▍| 30/32 [00:40<00:02,  1.35s/it](RtN Quant.) Layers:  97%|█████████▋| 31/32 [00:42<00:01,  1.35s/it](RtN Quant.) Layers: 100%|██████████| 32/32 [00:43<00:00,  1.35s/it](RtN Quant.) Layers: 100%|██████████| 32/32 [00:43<00:00,  1.36s/it]
+2026-04-30 05:31:54,268 - spinquant - INFO - Complete tokenizer loading...
 Token indices sequence length is longer than the specified maximum sequence length for this model (341468 > 2048). Running this sequence through the model will result in indexing errors
 (Eval) Layers:   0%|          | 0/32 [00:00<?, ?it/s]WARNING:eval_utils.modeling_llama:The attention layers in this model are transitioning from computing the RoPE embeddings internally through `position_ids` (2D tensor with the indexes of the tokens), to using externally computed `position_embeddings` (Tuple of tensors, containing cos and sin). In v4.46 `position_ids` will be removed and `position_embeddings` will be mandatory.
-(Eval) Layers:   3%|▎         | 1/32 [00:08<04:38,  8.99s/it](Eval) Layers:   6%|▋         | 2/32 [00:17<04:21,  8.72s/it](Eval) Layers:   9%|▉         | 3/32 [00:25<04:09,  8.59s/it](Eval) Layers:  12%|█▎        | 4/32 [00:34<03:56,  8.44s/it](Eval) Layers:  16%|█▌        | 5/32 [00:42<03:47,  8.42s/it](Eval) Layers:  19%|█▉        | 6/32 [00:50<03:39,  8.43s/it](Eval) Layers:  22%|██▏       | 7/32 [00:59<03:28,  8.35s/it](Eval) Layers:  25%|██▌       | 8/32 [01:07<03:18,  8.28s/it](Eval) Layers:  28%|██▊       | 9/32 [01:15<03:08,  8.20s/it](Eval) Layers:  31%|███▏      | 10/32 [01:23<02:58,  8.12s/it](Eval) Layers:  34%|███▍      | 11/32 [01:30<02:46,  7.94s/it](Eval) Layers:  38%|███▊      | 12/32 [01:38<02:37,  7.89s/it](Eval) Layers:  41%|████      | 13/32 [01:46<02:29,  7.89s/it](Eval) Layers:  44%|████▍     | 14/32 [01:54<02:20,  7.82s/it](Eval) Layers:  47%|████▋     | 15/32 [02:01<02:12,  7.77s/it](Eval) Layers:  50%|█████     | 16/32 [02:09<02:03,  7.73s/it](Eval) Layers:  53%|█████▎    | 17/32 [02:17<01:55,  7.69s/it](Eval) Layers:  56%|█████▋    | 18/32 [02:24<01:47,  7.65s/it](Eval) Layers:  59%|█████▉    | 19/32 [02:32<01:38,  7.60s/it](Eval) Layers:  62%|██████▎   | 20/32 [02:39<01:31,  7.64s/it](Eval) Layers:  66%|██████▌   | 21/32 [02:47<01:24,  7.64s/it](Eval) Layers:  69%|██████▉   | 22/32 [02:54<01:15,  7.60s/it](Eval) Layers:  72%|███████▏  | 23/32 [03:02<01:08,  7.58s/it](Eval) Layers:  75%|███████▌  | 24/32 [03:09<01:00,  7.55s/it](Eval) Layers:  78%|███████▊  | 25/32 [03:17<00:52,  7.57s/it](Eval) Layers:  81%|████████▏ | 26/32 [03:25<00:45,  7.58s/it](Eval) Layers:  84%|████████▍ | 27/32 [03:32<00:37,  7.55s/it](Eval) Layers:  88%|████████▊ | 28/32 [03:40<00:30,  7.60s/it](Eval) Layers:  91%|█████████ | 29/32 [03:48<00:22,  7.63s/it](Eval) Layers:  94%|█████████▍| 30/32 [03:55<00:15,  7.58s/it](Eval) Layers:  97%|█████████▋| 31/32 [04:03<00:07,  7.56s/it](Eval) Layers: 100%|██████████| 32/32 [04:10<00:00,  7.53s/it](Eval) Layers: 100%|██████████| 32/32 [04:10<00:00,  7.83s/it]
-2026-04-30 00:23:52,092 - spinquant - INFO - wiki2 ppl is: 7.445040702819824
-WARNING:lm-eval:`pretrained` model kwarg is not of type `str`. Many other model arguments may be ignored. Please do not launch via accelerate or use `parallelize=True` if passing an existing model this way.
-WARNING:lm-eval:Passed an already-initialized model through `pretrained`, assuming single-process call to evaluate() or custom distributed integration
-2026-04-30 00:23:52,781 - spinquant - INFO - Evaluating piqa...
-INFO:lm-eval:Setting random seed to 0 | Setting numpy seed to 1234 | Setting torch manual seed to 1234
-INFO:lm-eval:Using pre-initialized model
-INFO:lm-eval:`group` and `group_alias` keys in TaskConfigs are deprecated and will be removed in v0.4.5 of lm_eval. The new `tag` field will be used to allow for a shortcut to a group of tasks one does not wish to aggregate metrics across. `group`s which aggregate across subtasks must be only defined in a separate group config file, which will be the official way to create groups that support cross-task aggregation as in `mmlu`. Please see the v0.4.4 patch notes and our documentation: https://github.com/EleutherAI/lm-evaluation-harness/blob/main/docs/new_task_guide.md#advanced-group-configs for more information.
-INFO:lm-eval:Setting fewshot random generator seed to 1234
-INFO:lm-eval:Building contexts for piqa on rank 0...
-  0%|          | 0/1838 [00:00<?, ?it/s]  8%|▊         | 153/1838 [00:00<00:01, 1529.65it/s] 17%|█▋        | 306/1838 [00:00<00:01, 1525.45it/s] 25%|██▌       | 461/1838 [00:00<00:00, 1533.44it/s] 34%|███▎      | 619/1838 [00:00<00:00, 1550.87it/s] 42%|████▏     | 775/1838 [00:00<00:00, 1551.78it/s] 51%|█████     | 931/1838 [00:00<00:00, 1549.04it/s] 59%|█████▉    | 1088/1838 [00:00<00:00, 1554.82it/s] 68%|██████▊   | 1244/1838 [00:00<00:00, 1554.61it/s] 76%|███████▌  | 1400/1838 [00:00<00:00, 1550.30it/s] 85%|████████▍ | 1556/1838 [00:01<00:00, 1546.82it/s] 93%|█████████▎| 1711/1838 [00:01<00:00, 1539.10it/s]100%|██████████| 1838/1838 [00:01<00:00, 1543.30it/s]
-INFO:lm-eval:Running loglikelihood requests
-Running loglikelihood requests:   0%|          | 0/3676 [00:00<?, ?it/s]Traceback (most recent call last):
-  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 194, in <module>
-    train()
-  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 155, in train
-    result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/utils.py", line 397, in _wrapper
-    return fn(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/evaluator.py", line 301, in simple_evaluate
-    results = evaluate(
-              ^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/utils.py", line 397, in _wrapper
-    return fn(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/evaluator.py", line 476, in evaluate
-    resps = getattr(lm, reqtype)(cloned_reqs)
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/api/model.py", line 378, in loglikelihood
-    return self._loglikelihood_tokens(new_reqs, disable_tqdm=disable_tqdm)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/models/huggingface.py", line 1110, in _loglikelihood_tokens
-    self._model_call(batched_inps, **call_kwargs), dim=-1
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/lm_eval/models/huggingface.py", line 822, in _model_call
-    return self.model(inps).logits
-           ^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/RotationBasedRepository/eval_utils/modeling_llama.py", line 1360, in forward
-    outputs = self.model(
-              ^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/RotationBasedRepository/eval_utils/modeling_llama.py", line 1124, in forward
-    position_embeddings = self.rotary_emb(hidden_states, position_ids)
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
-    return self._call_impl(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
-    return forward_call(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
-    return func(*args, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^
-  File "/home/jhkcool97/RotationBasedRepository/eval_utils/modeling_llama.py", line 237, in forward
-    inv_freq_expanded.float() @ position_ids_expanded.float() 
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cuda:0 and cpu! (when checking argument for argument mat2 in method wrapper_CUDA_bmm)
-Running loglikelihood requests:   0%|          | 0/3676 [00:00<?, ?it/s]
+(Eval) Layers:   3%|▎         | 1/32 [00:10<05:27, 10.58s/it](Eval) Layers:   6%|▋         | 2/32 [00:20<05:04, 10.15s/it](Eval) Layers:   9%|▉         | 3/32 [00:30<04:48,  9.95s/it](Eval) Layers:  12%|█▎        | 4/32 [00:39<04:33,  9.77s/it](Eval) Layers:  16%|█▌        | 5/32 [00:49<04:20,  9.66s/it](Eval) Layers:  19%|█▉        | 6/32 [00:58<04:11,  9.65s/it](Eval) Layers:  22%|██▏       | 7/32 [01:08<04:00,  9.61s/it](Eval) Layers:  25%|██▌       | 8/32 [01:17<03:49,  9.55s/it](Eval) Layers:  28%|██▊       | 9/32 [01:27<03:38,  9.50s/it](Eval) Layers:  31%|███▏      | 10/32 [01:36<03:28,  9.47s/it](Eval) Layers:  34%|███▍      | 11/32 [01:45<03:17,  9.41s/it](Eval) Layers:  38%|███▊      | 12/32 [01:55<03:08,  9.40s/it](Eval) Layers:  41%|████      | 13/32 [02:04<02:58,  9.38s/it](Eval) Layers:  44%|████▍     | 14/32 [02:13<02:48,  9.37s/it](Eval) Layers:  47%|████▋     | 15/32 [02:23<02:38,  9.33s/it](Eval) Layers:  50%|█████     | 16/32 [02:32<02:29,  9.35s/it](Eval) Layers:  53%|█████▎    | 17/32 [02:41<02:20,  9.34s/it](Eval) Layers:  56%|█████▋    | 18/32 [02:50<02:10,  9.29s/it](Eval) Layers:  59%|█████▉    | 19/32 [03:00<02:01,  9.33s/it](Eval) Layers:  62%|██████▎   | 20/32 [03:11<01:58,  9.85s/it](Eval) Layers:  66%|██████▌   | 21/32 [03:21<01:47,  9.81s/it](Eval) Layers:  69%|██████▉   | 22/32 [03:30<01:35,  9.55s/it](Eval) Layers:  72%|███████▏  | 23/32 [03:39<01:24,  9.37s/it](Eval) Layers:  75%|███████▌  | 24/32 [03:48<01:14,  9.25s/it](Eval) Layers:  78%|███████▊  | 25/32 [03:57<01:04,  9.17s/it](Eval) Layers:  81%|████████▏ | 26/32 [04:05<00:54,  9.11s/it](Eval) Layers:  84%|████████▍ | 27/32 [04:14<00:45,  9.06s/it](Eval) Layers:  88%|████████▊ | 28/32 [04:24<00:36,  9.11s/it](Eval) Layers:  91%|█████████ | 29/32 [04:34<00:28,  9.51s/it](Eval) Layers:  94%|█████████▍| 30/32 [04:43<00:18,  9.29s/it](Eval) Layers:  97%|█████████▋| 31/32 [04:52<00:09,  9.13s/it](Eval) Layers: 100%|██████████| 32/32 [05:00<00:00,  9.04s/it](Eval) Layers: 100%|██████████| 32/32 [05:00<00:00,  9.41s/it]
+2026-04-30 05:37:03,462 - spinquant - INFO - wiki2 ppl is: 7.445040702819824

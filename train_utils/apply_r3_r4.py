@@ -52,10 +52,10 @@ def rotate_model(model, args):
         tqdm.tqdm(layers, unit="layer", desc="Applying R4 rotation to W_down")
     ):
     
-        is_target = False
+        is_target = True
         if args.target_layer_indices is not None:
-            if idx in args.target_layer_indices:
-                is_target = True
+            if idx not in args.target_layer_indices:
+                is_target = False
         else:
             # 지정되지 않았을 때의 기본 동작 (모든 레이어 적용 혹은 미적용 결정)
             is_target = True

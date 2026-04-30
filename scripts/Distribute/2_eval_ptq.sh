@@ -24,8 +24,8 @@ OUTPUT_DIR="/home/jhkcool97/RotationBasedRepository/outputs/${MODEL_NAME}"
 
 # -------------------------------------------------------------------------
 # [상위 루프] 실험할 비트 조합 리스트 (Weight,Activation)
-BIT_CONFIGS=("4,8" "4,4")
-# BIT_CONFIGS=("4,4")
+# BIT_CONFIGS=("4,8" "4,4")
+BIT_CONFIGS=("4,8")
 for CONFIG in "${BIT_CONFIGS[@]}"; do
     # 쉼표를 기준으로 W_BIT와 A_BIT 분리
     IFS=',' read -r W_BIT A_BIT <<< "$CONFIG"

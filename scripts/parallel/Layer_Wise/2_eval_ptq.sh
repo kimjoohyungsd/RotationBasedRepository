@@ -1,0 +1,41 @@
+#!/bin/bash
+cleanup() {
+    echo ""
+    echo "!!! Keyboard Interrupt detected. Terminating python processes... !!!"
+    pkill -P $$ 
+    exit 1
+}
+trap cleanup SIGINT
+
+# MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "Qwen/Qwen2.5-7B" )
+MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B"  )
+# MODELS=( "Qwen/Qwen2.5-7B" )
+# GPUS=(5 6 7 )
+GPUS=(0 1)
+OUTPUT_BASE="/home/jhkcool97/RotationBasedRepository/outputs"
+TARGET_LAYERS="0 1 2 3 28 29 30 31"
+BIT_CONFIGS=("4,4")
+# BIT_CONFIGS=("4,8" "4,4")
+for CONFIG in "${BIT_CONFIGS[@]}"; do
+    # 쉼표를 기준으로 W_BIT와 A_BIT 분리
+    IFS=',' read -r W_BIT A_BIT <<< "$CONFIG"
+    
+    echo "========================================"
+    echo "  Starting Experiments for W${W_BIT}A${A_BIT}"
+    echo "========================================"
+
+    echo "Running Experiment 1: All Rotations (W${W_BIT}A${A_BIT})"
+    # 1. All Rotations 적용
+    for i in "${!MODELS[@]}"; do
+        GPU_ID=${GPUS[$i]}
+        MODEL_PATH=${MODELS[$i]}
+        MODEL_NAME=$(basename "$MODEL_PATH")
+        TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
+        mkdir -p "$TARGET_DIR"
+
+        CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+            --input_model "$MODEL_PATH" \
+            --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+            --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+            --a_asym --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+            --rotate --online_r2 --wikitext2 --w_rtn --w_clip  --target_layer_indices $TARGET_LAYERS > "${TARGET_DIR}/log_W${W_BIT}A${A_BIT}_R4_F4L4.txt" 2>&1 &
