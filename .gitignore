@@ -2,4 +2,3 @@ fast-hadamard-transform/
 wandb/
 **/__pycache__/
 *.pyc
-outputs/

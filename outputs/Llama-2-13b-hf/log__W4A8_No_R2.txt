@@ -1,0 +1,19 @@
+Loading checkpoint shards:   0%|          | 0/3 [00:00<?, ?it/s]Loading checkpoint shards:   0%|          | 0/3 [00:02<?, ?it/s]
+Traceback (most recent call last):
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 194, in <module>
+    train()
+  File "/home/jhkcool97/RotationBasedRepository/ptq.py", line 53, in train
+    model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/transformers/modeling_utils.py", line 3960, in from_pretrained
+    ) = cls._load_pretrained_model(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/transformers/modeling_utils.py", line 4434, in _load_pretrained_model
+    new_error_msgs, offload_index, state_dict_index = _load_state_dict_into_meta_model(
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/transformers/modeling_utils.py", line 961, in _load_state_dict_into_meta_model
+    set_module_tensor_to_device(model, param_name, param_device, **set_module_kwargs)
+  File "/home/jhkcool97/miniconda3/envs/QuaRot/lib/python3.11/site-packages/accelerate/utils/modeling.py", line 416, in set_module_tensor_to_device
+    new_value = value.to(device)
+                ^^^^^^^^^^^^^^^^
+KeyboardInterrupt
