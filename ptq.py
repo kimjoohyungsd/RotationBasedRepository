@@ -48,6 +48,21 @@ def train() -> None:
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
 
     device_map = "auto" if ptq_args.distribute else None
+    n_gpus = torch.cuda.device_count()
+
+    # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
+    # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
+    max_memory = {}  # 빈 딕셔너리로 초기화
+    if ptq_args.distribute:
+        n_gpus = torch.cuda.device_count()
+        # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
+        max_memory[0] = "17GiB" 
+        for i in range(1, n_gpus):
+            # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
+            max_memory[i] = "18GiB" 
+    else:
+        max_memory = None # 분산 모드가 아닐 때는 None 전달
+
     model_args.net= model_args.input_model.split('/')[-1]
     if 'Llama' in model_args.net:
         model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
@@ -55,7 +70,8 @@ def train() -> None:
             config=config,
             torch_dtype=dtype,
             token=model_args.access_token,
-            device_map=device_map
+            device_map=device_map,
+            max_memory=max_memory
         )
     elif 'Qwen' in model_args.net:
         model = Qwen2ForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
@@ -144,7 +160,7 @@ def train() -> None:
         import lm_eval
         from lm_eval import utils as lm_eval_utils
         from lm_eval.models.huggingface import HFLM
-        
+
         if not ptq_args.distribute:
             model.cuda() # 모델을 GPU로 옮긴다
         hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
