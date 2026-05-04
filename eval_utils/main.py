@@ -36,6 +36,8 @@ def ptq_model(args, model, log,model_args=None):
         smooth_quant.smoothing(model,args,act_scales)
 
     # Rotate the weights
+    log.info("LayerNorm Fusion Applied For R1 Transform")
+    fuse_norm_utils.fuse_layer_norms(model)
     if args.rotate:
         log.info("R1: {}, R2: {}, R3: {}, R4: {}".format(
             not args.deactivate_r1, 
@@ -45,9 +47,9 @@ def ptq_model(args, model, log,model_args=None):
         ))
 
         
-        if not args.deactivate_r1:
-            fuse_norm_utils.fuse_layer_norms(model) #
-            log.info("LayerNorm Fusion Applied For R1 Transform")
+        # if not args.deactivate_r1:
+        #     fuse_norm_utils.fuse_layer_norms(model) #
+        #     log.info("LayerNorm Fusion Applied For R1 Transform")
 
         rotation_utils.rotate_model(model, args,model_args)
         if not args.deactivate_r4:
