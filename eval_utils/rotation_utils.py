@@ -214,16 +214,23 @@ def rotate_head(model, R1: torch.Tensor,args) -> None:
 def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
     v_proj = layer.self_attn.v_proj
     o_proj = layer.self_attn.o_proj
+    linear_dtype = v_proj.weight.dtype
+    linear_device = v_proj.weight.device
     # print("OV_proj")
     
     # QuaRot 방식과 동일하게 R2 방식을 적용하면 diagonal하게 Randomized한 Hadamard rotation을 적용할 수가 없다 => 
     if (online_r2):
         apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=None)
         apply_exact_had_to_linear(o_proj, had_dim=-1, Dim0=False, Matrix=None)
+
+        if hasattr(v_proj,"bias"): #Qwen2의 architecture 기반의 case
+            v_proj.bias.data = HadamardTransform.apply(v_proj.bias.data.float()/math.sqrt(v_proj.bias.data.shape[0])).to(dtype=linear_dtype)
     else:
         apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=R2)
         apply_exact_had_to_linear(o_proj, had_dim=head_dim, Dim0=False, Matrix=R2)
 
+        if hasattr(v_proj,"bias"): #Qwen2의 architecture 기반의 case v_proj의 bias가 포함되어 있음
+            v_proj.bias.data = torch.matmul(v_proj.bias.data.to(dtype=torch.float32),R2.to(dtype=torch.float32,device=linear_device))
 
 @torch.inference_mode()
 def rotate_model(model, args,model_args=None):

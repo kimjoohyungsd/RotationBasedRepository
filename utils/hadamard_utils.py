@@ -94,7 +94,7 @@ def matmul_hadU(X, transpose=False): # X Hadamard Transform을 적용할 대상
         # Step1: Fast Hadamard Transform을 적용하는 구간 
         output[:, :, 0, :] = input[:, :, 0, :] + input[:, :, 1, :]
         output[:, :, 1, :] = input[:, :, 0, :] - input[:, :, 1, :]
-        output = output.view(input.shape[0], input.shape[1], -1) # [input_shape]
+        output = output.view(input.shape[0], input.shape[1], -1) # [X.shape[0],X]
         (input, output) = (output, input) # input.shape[1] Dim 1이 지원하는 Fast Hadamard Transform을 지원하는 쌍의 개수 input.shape[3] 지원되는 한 pair의 각 Vector의 길이
     del output
 
