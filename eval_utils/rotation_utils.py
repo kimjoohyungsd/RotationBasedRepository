@@ -225,7 +225,7 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
 
         if hasattr(v_proj,"bias"): #Qwen2의 architecture 기반의 case
             original_shape = v_proj.bias.data.shape
-            bias_reshaped = v_proj.bias.data.reshape(original_shape//head_dim,head_dim)
+            bias_reshaped = v_proj.bias.data.reshape(-1,head_dim)
             v_proj.bias.data = HadamardTransform.apply(bias_reshaped.float()/math.sqrt(head_dim)).to(dtype=linear_dtype).reshape(original_shape)
     else:
         apply_exact_had_to_linear(v_proj, had_dim=head_dim, Dim0=True, Matrix=R2)
@@ -233,8 +233,8 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
 
         if hasattr(v_proj,"bias"): #Qwen2의 architecture 기반의 case v_proj의 bias가 포함되어 있음
             original_shape = v_proj.bias.data.shape
-            bias_reshaped = v_proj.bias.data.reshape(original_shape//head_dim,head_dim)
-            v_proj.bias.data = torch.matmul(bias_reshaped.to(dtype=torch.float32),R2.to(dtype=torch.float32,device=linear_device))
+            bias_reshaped = v_proj.bias.data.reshape(-1,head_dim)
+            v_proj.bias.data = torch.matmul(bias_reshaped.to(dtype=torch.float32),R2.to(dtype=torch.float32,device=linear_device)).reshape(original_shape)
 
 @torch.inference_mode()
 def rotate_model(model, args,model_args=None):
