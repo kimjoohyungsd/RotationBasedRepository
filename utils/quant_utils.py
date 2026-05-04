@@ -290,7 +290,7 @@ class ActQuantWrapper(torch.nn.Module):
                 ).transpose(1, 2)
             else:
                 x = (
-                    self.had_K.to(x.dtype)
+                    self.had_K.to(dtype=x.dtype, device=x.device)
                     @ x.reshape(-1, init_shape[-1] // self.had_dim, self.had_dim)
                 ) / math.sqrt(init_shape[-1] // self.had_dim)
 
