@@ -12,6 +12,7 @@ import torch
 # import torch.distributed as dist
 from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast,AutoTokenizer # LlamaForCausalLM, pipeline
 import transformers
+import os
 
 # import lm_eval
 # from lm_eval import evaluator, utils
@@ -24,7 +25,7 @@ from eval_utils.main import ptq_model
 from eval_utils.modeling_llama import LlamaForCausalLM
 from eval_utils.modeling_qwen2 import Qwen2ForCausalLM # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
 
-from utils import data_utils, eval_utils, utils
+from utils import data_utils, eval_utils, utils, draw_utils
 from utils.process_args import process_args_ptq
 
 from datasets import load_dataset
@@ -46,6 +47,8 @@ def train() -> None:
         config.tie_word_embeddings = False
         process_word_embeddings = True
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
+    if ptq_args.draw:
+        dtype = torch.float16
 
     device_map = "auto" if ptq_args.distribute else None
     n_gpus = torch.cuda.device_count()
@@ -142,7 +145,7 @@ def train() -> None:
     log.info("Complete tokenizer loading...")
     
     results = {}
-    if ptq_args.wikitext2:
+    if ptq_args.wikitext2 or ptq_args.draw:
         model.config.use_cache = False
         testloader = data_utils.get_wikitext2( 
             seed=ptq_args.seed,
@@ -151,9 +154,39 @@ def train() -> None:
             eval_mode=True,
         )
 
-        dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
-        log.info("wiki2 ppl is: {}".format(dataset_ppl))
-        results['wiki2_ppl'] = dataset_ppl
+        if ptq_args.wikitext2:
+            dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
+            log.info("wiki2 ppl is: {}".format(dataset_ppl))
+            results['wiki2_ppl'] = dataset_ppl
+
+        if ptq_args.draw:
+            if ptq_args.distribution_dir is None:
+                ptq_args.distribution_dir = os.path.join("figures", model_args.net)
+
+            os.makedirs(ptq_args.distribution_dir, exist_ok=True)
+
+            save_path = ptq_args.distribution_dir
+            if ptq_args.rotate:
+                if ptq_args.optimized_rotation_path:
+                    save_path = os.path.join(save_path,"Rotated (SpinQuant)")
+                else:
+                    save_path = os.path.join(save_path,"Rotated ({})".format(ptq_args.rotate_mode))
+            elif ptq_args.smooth_quant:
+                save_path = os.path.join(save_path,"Smoothed")
+
+            if ptq_args.weight_check:
+
+                weight_path = os.path.join(save_path,"Weight")
+                os.makedirs(weight_path,exist_ok=True)
+
+                # draw_utils에서 모델의 분포 및 3차원 그래프를 그리는 것을 진행하지
+                draw_utils.draw_weight(model,weight_path,ptq_args)
+
+            if ptq_args.act_check:
+                act_path = os.path.join(save_path,"Act")
+                draw_utils.draw_activations(model,act_path,ptq_args,testloader)
+
+
         # dist.barrier()
 
 

@@ -262,11 +262,17 @@ def main() -> None:
     )
 
 
-    # Step2: Dataset을 바탕으로 하여 각 Weight Tensor의 정보 준비를 완성한다
-    texts = data_utils.load_example_dataset() # 가지고 올때 [text sample1, text sample2, text sample3, text sample4, text sample5] 형식의 list 형태를 가지고 온다
-    full_text = " ".join(texts)
-    inputs =tokenizer(full_text,return_tensors='pt',truncation=True, max_length=1000)
-
+    # # Step2: Dataset을 바탕으로 하여 각 Weight Tensor의 정보 준비를 완성한다
+    # texts = data_utils.load_example_dataset() # 가지고 올때 [text sample1, text sample2, text sample3, text sample4, text sample5] 형식의 list 형태를 가지고 온다
+    # full_text = " ".join(texts)
+    # inputs =tokenizer(full_text,return_tensors='pt',truncation=True, max_length=1000)
+    testloader = data_utils.get_wikitext2( 
+            seed=ptq_args.seed,
+            seqlen=2048,
+            tokenizer=tokenizer,
+            eval_mode=True,
+        )
+        
     model.eval()
     model.config.use_cache = False
 

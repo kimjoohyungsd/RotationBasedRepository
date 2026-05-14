@@ -365,6 +365,7 @@ def parser_gen():
 
     # Outlier_check Arguments
     parser.add_argument("--weight_check",action=argparse.BooleanOptionalAction,default=False,help="Whether to Store Weight data for profiling")
+    parser.add_argument("--act_check",action=argparse.BooleanOptionalAction,default=False,help="Whether to check Activation data")
     parser.add_argument("--distribution_dir",type=str,default=None,help="Directory for storing weight and activation distribution")
     parser.add_argument("--layer_limit",type=int, default=-1,help="Layer limit of distribution profiling")
     parser.add_argument("--draw",action=argparse.BooleanOptionalAction,default=False,help="Whether to Draw and Save png file")

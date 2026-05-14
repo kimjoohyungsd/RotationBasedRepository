@@ -51,7 +51,7 @@ class CustomJsonDataset(torch.utils.data.IterableDataset):
         self.block_size = block_size
         tokenized_datasets = []
         for d in raw_data:
-            tokenized_datasets.append(self.tokenize_function(d)) # 일련의 Dataset을 tokenize한다 output type
+            tokenized_datasets.append(self.tokenize_function(d)) # 일련의 Dataset을 tokenize한다 output type [{input_ids:torch.tensor,attention_mask: torch.tens,token_type_ids}
 
         grouped_dataset = self.group_texts(tokenized_datasets) # group_texts 
         self.input_ids = grouped_dataset["input_ids"]
@@ -105,7 +105,7 @@ class CustomJsonDataset(torch.utils.data.IterableDataset):
 
 
 # Outlier check를 하기 위한 Wikitext dataset을 진행한다
-def load_example_dataset(dataset_name="wikitext", sample_size=128):
+def load_example_dataset(dataset_name="wikitext", sample_size=2048):
         """Load example dataset for activation analysis"""
         try:
             # Different options for datasets
