@@ -84,6 +84,14 @@ def train() -> None:
             token=model_args.access_token,
             device_map=device_map
         )
+    # elif 'Qwen3' in model_args.net:
+    #     model = Qwen3ForCausalLM.from_pretrained(
+    #         pretrained_model_name_or_path=model_args.input_model,
+    #         config=config,
+    #         torch_dtype=dtype,
+    #         token=model_args.access_token,
+    #         device_map=device_map
+    #     )
 
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()

@@ -1,7 +1,7 @@
 
 export MASTER_PORT=$((12000 + $RANDOM % 20000))
 
-python ptq.py \
+python ptq_qwen3.py \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -19,6 +19,8 @@ python ptq.py \
 --weight_check \
 --rotate \
 --online_r2 \
+--distribute \
+# --deactivate_r4 \
 # --offline \
 # --diagonal \
 # --diagonal_size 128 \

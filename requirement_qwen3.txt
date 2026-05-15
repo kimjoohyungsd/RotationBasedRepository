@@ -1,0 +1,17 @@
+# 핵심 아키텍처 지원 (Qwen3 공식 지원 버전)
+transformers==4.57.0
+
+# 분산 로드 및 최적화 (4.56.2와 호환성 검증 버전)
+accelerate==1.1.0
+
+# 데이터 처리 및 토크나이저
+datasets==2.20.0
+sentencepiece
+protobuf
+
+# 시각화 및 로깅
+tensorboardX
+
+# 평가 및 튜닝 (Qwen3 아키텍처 인식을 위한 버전업)
+lm-eval==0.4.5
+peft==0.13.2
