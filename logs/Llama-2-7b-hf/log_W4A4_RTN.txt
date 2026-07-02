@@ -1,0 +1,5 @@
+2026-07-02 02:01:18,120 - spinquant - INFO - Quantization bits W: 4,A: 4, KV: 16
+2026-07-02 02:01:18,121 - spinquant - INFO - Quantization group size W: per-token, A: per-channel, KV: 128
+2026-07-02 02:01:18,123 - spinquant - INFO - Rotation Not applied
+2026-07-02 02:02:02,358 - spinquant - INFO - Complete tokenizer loading...
+2026-07-02 02:07:13,611 - spinquant - INFO - wiki2 ppl is: 1899.9710693359375

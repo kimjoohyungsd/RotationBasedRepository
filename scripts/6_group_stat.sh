@@ -16,10 +16,11 @@ python ptq_qwen3.py \
 --a_groupsize -1 \
 --draw \
 --act_check \
---weight_check \
---rotate \
---online_r2 \
 --distribute \
+
+# --weight_check \
+# --rotate \
+# --online_r2 \
 # --deactivate_r4 \
 # --offline \
 # --diagonal \

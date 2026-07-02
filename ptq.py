@@ -36,6 +36,8 @@ from datasets import load_dataset
 def train() -> None:
     # dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=100)) # initializes the default distributed process group and Communication backend: NCCL 
     model_args, training_args, ptq_args = process_args_ptq()
+
+    # ptq_args.eval_out_path = os.path.join(ptq_args.eval_out_path,f"{}")
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
 
     config = transformers.AutoConfig.from_pretrained( 

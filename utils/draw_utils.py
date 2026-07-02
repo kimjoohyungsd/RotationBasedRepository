@@ -155,7 +155,7 @@ def draw_activations(model,save_path,args,testloader):
     
     # Step3: Catcher라는 리스트 생성
     inps = [None] * len(layers) 
-    cache = {"i": 0, "attention_mask": None, "position_ids": None}
+    cache = {"i": 0, "attention_mask": None, "position_ids": None, "position_embeddings": None}
     class Catcher(torch.nn.Module): # catcher
         def __init__(self, module):
             super().__init__()
@@ -166,9 +166,13 @@ def draw_activations(model,save_path,args,testloader):
             cache["i"] += 1
             cache["attention_mask"] = kwargs["attention_mask"]
             cache["position_ids"] = kwargs["position_ids"]
+            cache["position_embeddings"] = kwargs["position_embeddings"]
             raise ValueError
     
     layers[0] = Catcher(layers[0])
+
+    if hasattr(layers[0].module, "attention_type"):
+        layers[0].attention_type = layers[0].module.attention_type
 
     try:
         model(inp.to(device=model.device))
@@ -178,6 +182,7 @@ def draw_activations(model,save_path,args,testloader):
     layers[0] = layers[0].module
     position_ids = cache["position_ids"]
     attention_mask = cache["attention_mask"]
+    position_embeddings = cache['position_embeddings']
 
     torch.cuda.empty_cache()
 
@@ -205,10 +210,13 @@ def draw_activations(model,save_path,args,testloader):
             os.makedirs(tmp_path,exist_ok=True)
             hooks.append(module.register_forward_hook(functools.partial(stat_input_hook, layer_save_path=tmp_path, name=name, index=i)))
         
-        out=layer(cur_inp.to(device=layer_device),attention_mask=attention_mask,position_ids=position_ids)[0]
+        out=layer(cur_inp.to(device=layer_device),attention_mask=attention_mask,position_ids=position_ids,position_embeddings=position_embeddings)
 
         for h in hooks:
             h.remove()
+        
+        if isinstance(out, tuple):
+            out = out[0]
         
         cur_inp = out
 
