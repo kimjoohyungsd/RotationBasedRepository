@@ -8,7 +8,8 @@ cleanup() {
 trap cleanup SIGINT
 
 # MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "Qwen/Qwen2.5-7B" )
-MODELS=("Qwen/Qwen3-8B" "Qwen/Qwen3-14B" )
+# MODELS=("Qwen/Qwen3-8B" "Qwen/Qwen3-14B" )
+MODELS=("Qwen/Qwen3-14B" )
 # MODELS=( "Qwen/Qwen2.5-7B" )
 # GPUS=(5 6 7 )
 GPUS=(0 1 2)

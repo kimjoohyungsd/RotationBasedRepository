@@ -192,8 +192,15 @@ def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transp
             had_K, K = get_hadK(dim0,transpose) # Return Output: had_K: Power of 2 가 아닌 Hadamard Matrix, K: Power of 2가 아닌 Hadamard Matrix의 Shape (만약 power of 2 인 경우 k의 output은 1임)
             W_ = matmul_hadU_cuda(W_.t(), had_K, K,transpose).t()
         if not Dim0:
-            had_K, K = get_hadK(dim1)
-            W_ = matmul_hadU_cuda(W_, had_K, K,transpose) # Dim1
+            try:
+                had_K, K = get_hadK(dim1)
+                W_ = matmul_hadU_cuda(W_, had_K, K,transpose) # Dim1
+            except:
+                had_dim = largest_power_of_two_divisor(dim1)
+                hadK = hadamard_matrix(had_dim, "cuda").to(torch.float64)
+                temp = W_.reshape(-1, init_shape[-1] // had_dim, had_dim)
+                temp = temp.to(torch.float64) @ hadK
+                W_ = temp.reshape(init_shape)
     else:
         hadK = hadamard_matrix(had_dim, "cuda").to(torch.float64)
         if Matrix is not None:

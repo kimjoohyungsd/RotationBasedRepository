@@ -6,3 +6,4 @@
 2026-07-16 07:10:54,664 - spinquant - INFO - Applying R4 Transform
 2026-07-16 07:10:56,936 - spinquant - INFO - Online R2 rotation in QuaRot Applied
 2026-07-16 07:11:45,286 - spinquant - INFO - Complete tokenizer loading...
+2026-07-16 07:19:10,193 - spinquant - INFO - wiki2 ppl is: 13.304290771484375
