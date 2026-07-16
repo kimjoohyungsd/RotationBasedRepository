@@ -8,10 +8,12 @@ cleanup() {
 trap cleanup SIGINT
 
 # MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "Qwen/Qwen2.5-7B" )
-MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B"  )
+MODELS=("Qwen/Qwen3-8B" "Qwen/Qwen3-14B")
 # MODELS=( "Qwen/Qwen2.5-7B" )
-# GPUS=(5 6 7 )
-GPUS=(0 1)
+GPUS=(3 4 5 )
+# GPUS=(0 1)
+VISIBLE_GPUS=$(IFS=,; echo "${GPUS[*]}")
+echo "Visible GPUs: ${VISIBLE_GPUS}"
 OUTPUT_BASE="/home/jhkcool97/RotationBasedRepository/logs/Permutations"
 # BIT_CONFIGS=("4,8" "4,4")
 
@@ -27,48 +29,46 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
 
     echo "Running Experiment 1: All Rotations (W${W_BIT}A${A_BIT})"
     # 1. All Rotations 적용
-    # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
-    #     MODEL_PATH=${MODELS[$i]}
-    #     MODEL_NAME=$(basename "$MODEL_PATH")
-    #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
-    #     mkdir -p "$TARGET_DIR"
-
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
-    #         --input_model "$MODEL_PATH" \
-    #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
-    #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
-    #         --a_asym --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
-    #         --rotate --online_r2 --wikitext2 --w_rtn --w_clip  --eval_out_path "${TARGET_DIR}/log_W${W_BIT}A${A_BIT}_ALL_Rotations.txt" 
-    # done
-    # wait
-
-    # 2. zigzag permutation + Block Hadamard Rotation
-    # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
-    #     MODEL_PATH=${MODELS[$i]}
-    #     MODEL_NAME=$(basename "$MODEL_PATH")
-    #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
-    #     mkdir -p "$TARGET_DIR"
-
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
-    #         --input_model "$MODEL_PATH" \
-    #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
-    #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
-    #         --a_asym --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
-    #         --rotate --online_r2 --permute --permute_mode 'zigzag' --diagonal_size 128 --wikitext2 --w_rtn --w_clip  --eval_out_path "${TARGET_DIR}/log_W${W_BIT}A${A_BIT}_zigzag_permute.txt" 
-    # done
-    # wait
-
-    # 3. MassDiff Permutation + Block hadamard Rotation
     for i in "${!MODELS[@]}"; do
-        GPU_ID=${GPUS[$i]}
         MODEL_PATH=${MODELS[$i]}
         MODEL_NAME=$(basename "$MODEL_PATH")
         TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
         mkdir -p "$TARGET_DIR"
 
-        CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+        CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq_qwen3.py \
+            --input_model "$MODEL_PATH" \
+            --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+            --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+            --a_asym --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+            --rotate --online_r2 --wikitext2 --w_rtn --w_clip  --eval_out_path "${TARGET_DIR}/log_W${W_BIT}A${A_BIT}_ALL_Rotations.txt" 
+    done
+    wait
+
+    # 2. zigzag permutation + Block Hadamard Rotation
+    for i in "${!MODELS[@]}"; do
+        MODEL_PATH=${MODELS[$i]}
+        MODEL_NAME=$(basename "$MODEL_PATH")
+        TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
+        mkdir -p "$TARGET_DIR"
+
+        CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq_qwen3.py \
+            --input_model "$MODEL_PATH" \
+            --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+            --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+            --a_asym --k_asym --v_asym --k_groupsize 128 --v_groupsize 128 \
+            --rotate --online_r2 --permute --permute_mode 'zigzag' --diagonal_size 128 --wikitext2 --w_rtn --w_clip  --eval_out_path "${TARGET_DIR}/log_W${W_BIT}A${A_BIT}_zigzag_permute.txt" 
+    done
+    wait
+
+    # 3. MassDiff Permutation + Block hadamard Rotation
+    for i in "${!MODELS[@]}"; do
+        # GPU_ID=${GPUS[$i]}
+        MODEL_PATH=${MODELS[$i]}
+        MODEL_NAME=$(basename "$MODEL_PATH")
+        TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
+        mkdir -p "$TARGET_DIR"
+
+        CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq_qwen3.py \
             --input_model "$MODEL_PATH" \
             --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
             --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -80,13 +80,12 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
 
     # 4. Random Permutation + Block hadamard Rotation
     for i in "${!MODELS[@]}"; do
-        GPU_ID=${GPUS[$i]}
         MODEL_PATH=${MODELS[$i]}
         MODEL_NAME=$(basename "$MODEL_PATH")
         TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
         mkdir -p "$TARGET_DIR"
 
-        CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+        CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq_qwen3.py \
             --input_model "$MODEL_PATH" \
             --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
             --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -96,3 +95,4 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     wait
 done
 wait
+

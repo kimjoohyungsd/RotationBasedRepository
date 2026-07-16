@@ -8,11 +8,13 @@ cleanup() {
 trap cleanup SIGINT
 
 # MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "Qwen/Qwen2.5-7B" )
-MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B"  )
+MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" "meta-llama/Llama-2-13b-hf"  )
 # MODELS=( "Qwen/Qwen2.5-7B" )
 # GPUS=(5 6 7 )
 GPUS=(0 1)
-OUTPUT_BASE="/home/jhkcool97/RotationBasedRepository/logs"
+VISIBLE_GPUS=$(IFS=,; echo "${GPUS[*]}")
+echo "Visible GPUs: ${VISIBLE_GPUS}"
+OUTPUT_BASE="/home/jhkcool97/RotationBasedRepository/logs/Rotations/"
 # BIT_CONFIGS=("4,8" "4,4")
 
 # BIT_CONFIGS=("4,8" )
@@ -28,13 +30,13 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     echo "Running Experiment 1: All Rotations (W${W_BIT}A${A_BIT})"
     # 1. All Rotations 적용
     for i in "${!MODELS[@]}"; do
-        GPU_ID=${GPUS[$i]}
+        
         MODEL_PATH=${MODELS[$i]}
         MODEL_NAME=$(basename "$MODEL_PATH")
         TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
         mkdir -p "$TARGET_DIR"
 
-        CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+        CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
             --input_model "$MODEL_PATH" \
             --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
             --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -48,12 +50,11 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     # echo "Running Experiment 2: No R4 (W${W_BIT}A${A_BIT})"
     # # 2. No R4 (deactivate_r1)
     # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
     #     MODEL_PATH=${MODELS[$i]}
     #     MODEL_NAME=$(basename "$MODEL_PATH")
     #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
 
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+    #     CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
     #         --input_model "$MODEL_PATH" \
     #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
     #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -65,12 +66,11 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     # echo "Running Experiment 3: No R2 (W${W_BIT}A${A_BIT})"
     # # 3. No R2 (deactivate_r2)
     # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
     #     MODEL_PATH=${MODELS[$i]}
     #     MODEL_NAME=$(basename "$MODEL_PATH")
     #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
 
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+    #     CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
     #         --input_model "$MODEL_PATH" \
     #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
     #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -84,12 +84,11 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     # echo "Running Experiment 4: No R1 (W${W_BIT}A${A_BIT})"
     # # 4. No R1 (deactivate_r1 + online_r2)
     # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
     #     MODEL_PATH=${MODELS[$i]}
     #     MODEL_NAME=$(basename "$MODEL_PATH")
     #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
 
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+    #     CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
     #         --input_model "$MODEL_PATH" \
     #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
     #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -101,12 +100,11 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     # echo "Running Experiment 5: Naive Round to Nearest Quantization (W${W_BIT}A${A_BIT})"
     # # 5. No R1 (deactivate_r1 + online_r2)
     # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
     #     MODEL_PATH=${MODELS[$i]}
     #     MODEL_NAME=$(basename "$MODEL_PATH")
     #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
 
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+    #     CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
     #         --input_model "$MODEL_PATH" \
     #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
     #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
@@ -118,12 +116,11 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     # echo "Running Experiment 6: No R4, R2 (W${W_BIT}A${A_BIT})"
     # # 6. No R4, R2 (only R1)
     # for i in "${!MODELS[@]}"; do
-    #     GPU_ID=${GPUS[$i]}
     #     MODEL_PATH=${MODELS[$i]}
     #     MODEL_NAME=$(basename "$MODEL_PATH")
     #     TARGET_DIR="${OUTPUT_BASE}/${MODEL_NAME}"
 
-    #     CUDA_VISIBLE_DEVICES=$GPU_ID python ptq.py \
+    #     CUDA_VISIBLE_DEVICES="$VISIBLE_GPUS" python ptq.py \
     #         --input_model "$MODEL_PATH" \
     #         --do_train False --do_eval True --per_device_eval_batch_size 4 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
     #         --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
