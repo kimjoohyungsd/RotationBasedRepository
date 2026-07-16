@@ -60,9 +60,23 @@ def parser_gen():
     )
     parser.add_argument('--scales-output-path', type=str, default='./act_scales/',
                         help='where to save the act scales')
+    parser.add_argument('--shifts-output-path',type=str, default='./act_shifts/',
+                        help='where to save the act shifts')
     parser.add_argument("--alpha", type=float, default=0.6,help='migration strength between activation and weight')
     parser.add_argument("--attention",action=argparse.BooleanOptionalAction,default=False,
                         help='Whether to apply smooting technique of attention output vector')
+    # Permutation Arguments
+    parser.add_argument(
+        '--permute',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help='Apply Permutation Technique')
+    parser.add_argument(
+        '--permute_mode',
+        type=str,
+        default='massdiff',choices=['zigzag','random','massdiff']
+    )
+    parser.add_argument('--permute_seed',type=int,default=-1,help="Random Seed for generationg random permute!!",)
     # Rotation Arguments
     parser.add_argument(
         "--rotate",
@@ -102,6 +116,9 @@ def parser_gen():
         default = -1,
         help = "Size of block diagonal block is better if this size is a power of 2",
     )
+    # parser.add_argument(
+    # '--block_size', type=int, default=-1, help='block size of Hadamard matrix in R4 area',
+    # )
     # Rotation을 적용할 모드
     parser.add_argument(
         "--rotate_mode", type=str, default="hadamard", choices=["hadamard", "random"]

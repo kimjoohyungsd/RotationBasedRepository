@@ -61,10 +61,10 @@ def train() -> None:
     if ptq_args.distribute:
         n_gpus = torch.cuda.device_count()
         # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
-        max_memory[0] = "17GiB" 
+        max_memory[0] = "10GiB" 
         for i in range(1, n_gpus):
             # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
-            max_memory[i] = "18GiB" 
+            max_memory[i] = "10GiB" 
     else:
         max_memory = None # 분산 모드가 아닐 때는 None 전달
 
@@ -115,10 +115,6 @@ def train() -> None:
     
     if ptq_args.per_column:
         log.info("Quantization is done on column wise manner")
-
-    model = ptq_model(ptq_args, model, log, model_args) # 
-    model.seqlen = training_args.model_max_length
-
     if 'Llama-3' in model_args.input_model:
         tokenizer = PreTrainedTokenizerFast.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
@@ -153,6 +149,11 @@ def train() -> None:
             token=model_args.access_token,
         )
     log.info("Complete tokenizer loading...")
+
+    model = ptq_model(ptq_args, model, log, tokenizer, model_args) # 
+    model.seqlen = training_args.model_max_length
+
+    
     
     results = {}
     if ptq_args.wikitext2 or ptq_args.draw:

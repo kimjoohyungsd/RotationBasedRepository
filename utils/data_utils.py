@@ -30,7 +30,7 @@ def get_wikitext2(nsamples=128, seed=0, seqlen=2048, model="", tokenizer=None, e
         traindata = datasets.load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1")[
             "train"
         ]
-        trainenc = tokenizer("\n\n".join(traindata["text"]), return_tensors="pt")
+        trainenc = tokenizer("\n\n".join(traindata["text"]), return_tensors="pt") # 
         random.seed(seed)
         trainloader = []
         for _ in range(nsamples):

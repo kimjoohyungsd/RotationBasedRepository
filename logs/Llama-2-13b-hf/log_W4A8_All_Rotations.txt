@@ -1,0 +1,9 @@
+2026-07-02 06:47:34,958 - spinquant - INFO - Rotation applied
+2026-07-02 06:47:34,959 - spinquant - INFO - Quantization bits W: 4,A: 8, KV: 16
+2026-07-02 06:47:34,959 - spinquant - INFO - Quantization group size W: per-token, A: per-channel, KV: 128
+2026-07-02 06:47:34,966 - spinquant - INFO - R1: True, R2: True, R3: False, R4: True
+2026-07-02 06:47:36,066 - spinquant - INFO - LayerNorm Fusion Applied For R1 Transform
+2026-07-02 06:47:53,638 - spinquant - INFO - Applying R4 Transform
+2026-07-02 06:47:56,662 - spinquant - INFO - Online R2 rotation in QuaRot Applied
+2026-07-02 06:49:17,505 - spinquant - INFO - Complete tokenizer loading...
+2026-07-02 06:55:08,248 - spinquant - INFO - wiki2 ppl is: 5.462055683135986

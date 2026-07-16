@@ -82,9 +82,6 @@ def train() -> None:
     if ptq_args.per_column:
         log.info("Quantization is done on column wise manner")
 
-    model = ptq_model(ptq_args, model, log, model_args) # 
-    model.seqlen = training_args.model_max_length
-
     tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=model_args.input_model,
             cache_dir=training_args.cache_dir,
@@ -95,6 +92,9 @@ def train() -> None:
             add_bos_token=False,
             token=model_args.access_token,
         )
+    
+    model = ptq_model(ptq_args, model, log, tokenizer,model_args) # 
+    model.seqlen = training_args.model_max_length
 
     log.info("Complete tokenizer loading...")
 

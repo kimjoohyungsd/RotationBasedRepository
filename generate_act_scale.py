@@ -54,6 +54,43 @@ def get_act_scales(model, dataloader, num_samples=128):
 
     return act_scales
 
+def get_act_shifts(model, dataloader, num_samples=128):
+    model.eval()
+    device = next(model.parameters()).device
+    act_shifts = {}
+
+    def stat_tensor(name, tensor):
+        hidden_dim = tensor.shape[-1]
+        tensor = tensor.view(-1, hidden_dim).detach()
+        comming_max = torch.max(tensor, dim=0)[0].float().cpu()
+        comming_min = torch.min(tensor, dim=0)[0].float().cpu()
+        if name in act_shifts:
+            act_shifts[name] = 0.99*act_shifts[name] + 0.01 *((comming_max+comming_min)/2)
+        else:
+            act_shifts[name] = (comming_max+comming_min)/2
+
+    def stat_input_hook(m, x, y, name):
+        if isinstance(x, tuple):
+            x = x[0]
+        stat_tensor(name, x)
+
+    hooks = []
+    for name, m in model.named_modules():
+        if isinstance(m, nn.Linear):
+            hooks.append(
+                m.register_forward_hook(
+                    functools.partial(stat_input_hook, name=name))
+            )
+
+    for i in tqdm(range(num_samples)):
+        model(dataloader[i][0].to(device))
+
+
+    for h in hooks:
+        h.remove()
+
+    return act_shifts
+
 @torch.no_grad()
 def main():
     model_args, training_args, ptq_args = process_args_ptq()
@@ -79,12 +116,17 @@ def main():
         token=model_args.access_token,
     )
     ptq_args.net = model_args.input_model.split('/')[-1] # Llama-2-7b-hf
-    dataloader=data_utils.get_wikitext2(tokenizer=tokenizer,eval_mode=False) # dataloader로 값을 읽어온다
+    dataloader=data_utils.get_wikitext2(tokenizer=tokenizer,eval_mode=False) # dataloader로 값을 읽어온다 [(tokenized.input_ids (shape(1,2048)),(tokenized.answer_labels))]
     act_scales = get_act_scales(model, dataloader,ptq_args.nsamples) # act_scales로 값을 읽어온다
+    act_shifts = get_act_shifts(model,dataloader,ptq_args.nsamples) # act_shfits 값을 읽어온다
 
     # 읽어들인 값을 저장하는 과정
     save_path = os.path.join(ptq_args.scales_output_path,f'{ptq_args.net}.pt')
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    save_path = os.path.join(ptq_args.shifts_output_path,f'{ptq_args.net}.pt')
+    os.makedirs(os.path.dirname(save_path),exist_ok=True)
+    
     torch.save(act_scales, save_path)
 
 if __name__ == '__main__':

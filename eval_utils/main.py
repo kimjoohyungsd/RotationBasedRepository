@@ -14,14 +14,14 @@ import transformers
 
 from train_utils import apply_r3_r4
 from eval_utils import gptq_utils, rotation_utils
-from utils import data_utils, fuse_norm_utils, hadamard_utils, quant_utils, utils,smooth_quant
+from utils import data_utils, fuse_norm_utils, hadamard_utils, quant_utils, utils,smooth_quant,permute
 from utils.convert_to_executorch import (
     sanitize_checkpoint_from_spinquant,
     write_model_llama,
 )
 
 
-def ptq_model(args, model, log,model_args=None):
+def ptq_model(args, model, log, tokenizer, model_args=None):
     transformers.set_seed(args.seed)
     model.eval()
 
@@ -34,7 +34,8 @@ def ptq_model(args, model, log,model_args=None):
         #     print("Smoothing Applied to Attention")
         act_scales = torch.load(args.act_scales)
         smooth_quant.smoothing(model,args,act_scales)
-
+    if args.permute:
+        permute.permute(model,args,log,tokenizer)
     # Rotate the weights
     # log.info("LayerNorm Fusion Applied For R1 Transform")
     # fuse_norm_utils.fuse_layer_norms(model)
@@ -51,6 +52,7 @@ def ptq_model(args, model, log,model_args=None):
             fuse_norm_utils.fuse_layer_norms(model) #
             log.info("LayerNorm Fusion Applied For R1 Transform")
 
+        
         rotation_utils.rotate_model(model, args,model_args)
         if not args.deactivate_r4:
             log.info("Applying R4 Transform")
@@ -82,7 +84,7 @@ def ptq_model(args, model, log,model_args=None):
             #     continue
             if is_target:    
                 if "down_proj" in name and not args.deactivate_r4:
-                    if not args.diagonal:
+                    if not args.diagonal and not args.permute:
                         had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
                         qlayers[name].online_full_had = True
                         qlayers[name].had_K = had_K

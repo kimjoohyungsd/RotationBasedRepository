@@ -52,10 +52,11 @@ python  ptq.py \
 --a_asym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---rotate \
---optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
---wikitext2 \
---w_clip \
+--wikitext2
+# --rotate \
+# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
+# --wikitext2 \
+# --w_clip \
 # --w_groupsize 32 \
 # --a_groupsize 32 \
 # --w_rtn \

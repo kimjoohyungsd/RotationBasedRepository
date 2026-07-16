@@ -1,0 +1,4 @@
+2026-07-16 01:00:16,195 - spinquant - INFO - Rotation applied
+2026-07-16 01:00:16,195 - spinquant - INFO - Quantization bits W: 4,A: 4, KV: 16
+2026-07-16 01:00:16,195 - spinquant - INFO - Quantization group size W: per-token, A: per-channel, KV: 128
+2026-07-16 01:00:16,782 - spinquant - INFO - Complete tokenizer loading...

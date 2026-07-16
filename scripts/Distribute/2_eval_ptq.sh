@@ -33,8 +33,8 @@ fi
 
 # -------------------------------------------------------------------------
 # [상위 루프] 실험할 비트 조합 리스트 (Weight,Activation)
-BIT_CONFIGS=("16,16" "4,8" "4,4")
-# BIT_CONFIGS=("4,8")
+# BIT_CONFIGS=("16,16" "4,8" "4,4")
+BIT_CONFIGS=("4,4")
 for CONFIG in "${BIT_CONFIGS[@]}"; do
     # 쉼표를 기준으로 W_BIT와 A_BIT 분리
     IFS=',' read -r W_BIT A_BIT <<< "$CONFIG"
@@ -59,14 +59,13 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
             --input_model "$MODEL_PATH" \
             --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
             --w_bits 16 --a_bits 16 --k_bits 16 --v_bits 16 --distribute \
-            --wikitext2 \
-            > "${OUTPUT_DIR}/log_W16A16_Full_Precision.txt" 2>&1
+            --wikitext2 --eval_out_path "${OUTPUT_DIR}/log_W16A16_Full_Precision.txt"
             
         echo "Baseline experiment for W16A16 finished. Moving to next config."
         continue # 16비트는 소거법 실험이 필요 없으므로 다음 BIT_CONFIGS로 넘어감
     fi
 
-    # # 실험 1: 모든 Option 실행
+    # # # 실험 1: 모든 Option 실행
     # echo "Running Experiment 1: All Rotations (W${W_BIT}A${A_BIT})"
     # CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
     #     --input_model "$MODEL_PATH" \
@@ -74,19 +73,19 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     #     --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
     #     --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
     #     --rotate --distribute --online_r2 --wikitext2  --w_rtn --w_clip \
-    #     > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_All_Rotations.txt" 2>&1
+    #     --eval_out_path "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_All_Rotations.txt" 
 
-    # 실험 2: No R4 Option 실행
-    echo "Running Experiment 2: No R4 (W${W_BIT}A${A_BIT})"
-    CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
-        --input_model "$MODEL_PATH" \
-        --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
-        --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
-        --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
-        --rotate --distribute --online_r2 --deactivate_r4 --wikitext2  --w_rtn --w_clip \
-        > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R4.txt" 2>&1
+    # # 실험 2: No R4 Option 실행
+    # echo "Running Experiment 2: No R4 (W${W_BIT}A${A_BIT})"
+    # CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
+    #     --input_model "$MODEL_PATH" \
+    #     --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    #     --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+    #     --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
+    #     --rotate --distribute --online_r2 --deactivate_r4 --wikitext2  --w_rtn --w_clip \
+    #     --eval_out_path "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R4.txt" 2>&1
 
-    # # 실험 3: No R2 Option 실행
+    # # # 실험 3: No R2 Option 실행
     # echo "Running Experiment 3: No R2 (W${W_BIT}A${A_BIT})"
     # CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
     #     --input_model "$MODEL_PATH" \
@@ -94,7 +93,7 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     #     --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
     #     --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
     #     --rotate --distribute --deactivate_r2 --wikitext2 --w_rtn --w_clip \
-    #     > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R2.txt" 2>&1
+    #     --eval_out_path "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R2.txt"
 
     # # # 실험 3-1: No R2 Option 실행
     # # echo "Running Experiment 3-1: No R2_R4 (W${W_BIT}A${A_BIT})"
@@ -114,8 +113,18 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     #     --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
     #     --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
     #     --rotate --distribute --deactivate_r1 --online_r2 --wikitext2 --w_rtn --w_clip \
-    #     > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R1.txt" 2>&1
+    #     --eval_out_path "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R1.txt" 2>&1
 
+    # 실험 5: No R4, R2 Option 실행
+    echo "Running Experiment 5: No R4, R2 (W${W_BIT}A${A_BIT})"
+    CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
+        --input_model "$MODEL_PATH" \
+        --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+        --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+        --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
+        --rotate --deactivate_r4 --deactivate_r2 \
+        --distribute --wikitext2 --w_rtn --w_clip \
+        --eval_out_path "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R4,R2.txt"
     # # 실험 4-1: No R4, R1 Option 실행
     # CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python ptq.py \
     #     --input_model "$MODEL_PATH" \
@@ -125,15 +134,17 @@ for CONFIG in "${BIT_CONFIGS[@]}"; do
     #     --rotate --distribute --deactivate_r1 --deactivate_r4 --online_r2 --wikitext2 --w_rtn --w_clip \
     #     > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_R4_R1.txt" 2>&1
 
-    # 실험 5: No Rotations Option 실행
-    echo "Running Experiment 5: No Rotations (W${W_BIT}A${A_BIT})"
-    CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
-        --input_model "$MODEL_PATH" \
-        --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
-        --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
-        --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
-        --distribute --wikitext2 --w_rtn --w_clip \
-        > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_Rotations.txt" 2>&1
+    # 실험 5: No R2,R4 Option 실행
+
+    # 실험 6: No Rotations Option 실행
+    # echo "Running Experiment 6: No Rotations (W${W_BIT}A${A_BIT})"
+    # CUDA_VISIBLE_DEVICES=$CUDA_DEVICES python $PY_SCRIPT \
+    #     --input_model "$MODEL_PATH" \
+    #     --do_train False --do_eval True --per_device_eval_batch_size 2 --model_max_length 2048 --fp16 False --bf16 True --save_safetensors False \
+    #     --w_bits $W_BIT --a_bits $A_BIT --k_bits 16 --v_bits 16 \
+    #     --k_asym --v_asym --a_asym --k_groupsize 128 --v_groupsize 128 \
+    #     --distribute --wikitext2 --w_rtn --w_clip \
+    #     > "${OUTPUT_DIR}/log_W${W_BIT}A${A_BIT}_No_Rotations.txt" 2>&1
 
 done
 

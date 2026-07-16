@@ -28,7 +28,7 @@ import numpy as np
 def R4_rotate_down_proj_weights(layer,args):
     # Rotate the MLP output weights and bias.
     W = layer.mlp.down_proj
-    if args.diagonal:
+    if args.diagonal or args.permute:
         apply_exact_had_to_linear(W,had_dim=args.diagonal_size,Dim0=False)
     else:
         apply_exact_had_to_linear(
