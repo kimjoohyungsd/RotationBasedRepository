@@ -85,11 +85,30 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
             if is_target:    
                 if "down_proj" in name and not args.deactivate_r4:
                     if not args.diagonal and not args.permute:
-                        had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
-                        qlayers[name].online_full_had = True
-                        qlayers[name].had_K = had_K
-                        qlayers[name].K = K
-                        qlayers[name].fp32_had = args.fp32_had
+                        try: 
+                            had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size) # output1: 2의 제곱이 아닌 hadamard Matrix: walsh hadamard matrix가 아닌 Sloane Hadamard Matrix인 경우, K: Sloane Hadamard Matrix의 Size
+                            qlayers[name].online_full_had = True
+                            qlayers[name].had_K = had_K
+                            qlayers[name].K = K
+                            qlayers[name].fp32_had = args.fp32_had
+                        except:
+                            had_dim = hadamard_utils.largest_power_of_two_divisor(model.config.intermediate_size)
+
+                            had_K, K = hadamard_utils.get_hadK(had_dim)
+
+                            qlayers[name].online_diagonal_had = True
+                            qlayers[name].had_K = had_K
+                            qlayers[name].K = K
+                            qlayers[name].had_dim = had_dim
+                            qlayers[name].fp32_had = args.fp32_had
+
+                            log.warning(
+                                f"{name}: full Hadamard is not supported for "
+                                f"intermediate_dim={model.config.intermediate_size}. "
+                                f"Falling back to block Hadamard with "
+                                f"block_size={had_dim}, "
+                                f"num_blocks={model.config.intermediate_size // had_dim}."
+                            )
                         # qlayers[name].transpose=True
                     else:
                         had_K, K = hadamard_utils.get_hadK(args.diagonal_size) # output1: 2의 제곱이 아닌 hadamard Matrix, # Output2: 해당 matrix의 차원수 (shape?) 

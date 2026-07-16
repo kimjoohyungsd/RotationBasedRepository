@@ -12,6 +12,19 @@
 import torch
 from utils.utils import HadamardTransform
 
+def largest_power_of_two_divisor(n: int) -> int:
+    """
+    n을 나누는 가장 큰 2의 거듭제곱을 반환한다.
+
+    예:
+        11008 = 43 * 256  -> 256
+        14336 = 7 * 2048  -> 2048
+        18944 = 37 * 512  -> 512
+    """
+    if not isinstance(n, int) or n <= 0:
+        raise ValueError(f"n must be a positive integer, but got {n}")
+
+    return n & -n
 
 def get_hadK(n, transpose=False):
     hadK, K = None, None
