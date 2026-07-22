@@ -272,38 +272,47 @@ def rotate_model_respinquant(model, args, model_args=None):
     assert args.optimized_rotation_path is not None, (
         "ReSpinQuant requires --optimized_rotation_path pointing to a trained R.bin"
     )
-    ckpt = torch.load(args.optimized_rotation_path)
+    # Keep the checkpoint on CPU; move only the matrices we currently need to GPU.
+    ckpt = torch.load(args.optimized_rotation_path, map_location="cpu")
     num_layers = model.config.num_hidden_layers
     num_heads = model.config.num_attention_heads
     head_dim = model.config.hidden_size // num_heads
     rank = getattr(args, "residual_rank", 32)
 
+    # float32 is enough: the GPU fusion path downcasts to float32 anyway, so this
+    # yields byte-identical fused weights while halving the transient VRAM vs float64.
     def _load(key):
-        return ckpt[key].cuda().to(torch.float64)
-
-    # Per-layer residual-stream rotations and the final basis.
-    R1_list = [_load(f"model.layers.{i}.R1") for i in range(num_layers)]
-    R2_list = [_load(f"model.layers.{i}.R2") for i in range(num_layers)]
-    R1_final = _load("model.R1_final")
+        return ckpt[key].to(device="cuda", dtype=torch.float32)
 
     # Embedding uses layer 0's input basis; lm_head un-rotates the final basis.
     if not args.deactivate_r1:
-        rotate_embeddings(model, R1_list[0], args, model_args)
-        rotate_head(model, R1_final, args)
+        R1_0 = _load("model.layers.0.R1")
+        rotate_embeddings(model, R1_0, args, model_args)
+        del R1_0
+        R1_final_head = _load("model.R1_final")
+        rotate_head(model, R1_final_head, args)
+        del R1_final_head
+        utils.cleanup_memory()
 
-    utils.cleanup_memory()
     layers = list(model.model.layers)
+    # Rolling window: R1_next of layer i is R1_in of layer i+1, so we carry a single
+    # R1 matrix across iterations instead of holding all L on the GPU at once.
+    R1_in = _load("model.layers.0.R1") if not args.deactivate_r1 else None
     for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Rotating (ReSpinQuant)")):
-        R1_in = R1_list[idx]                                    # attn input basis
-        R2_mid = R2_list[idx]                                   # attn out / ffn in basis
-        R1_next = R1_list[idx + 1] if idx + 1 < num_layers else R1_final
-
         # Head rotation R3 (= SpinQuant's per-layer self_attn.R2)
         if not args.deactivate_r2:
             head_R2 = _load(f"model.layers.{idx}.self_attn.R2")
             rotate_ov_proj(layer, num_heads, head_dim, R2=head_R2, online_r2=False)
+            del head_R2
 
         if not args.deactivate_r1:
+            R2_mid = _load(f"model.layers.{idx}.R2")             # attn out / ffn in basis
+            R1_next = (
+                _load(f"model.layers.{idx + 1}.R1")
+                if idx + 1 < num_layers
+                else _load("model.R1_final")
+            )
+
             rotate_attention_inputs(layer, R1_in, args)         # q/k/v: W @ R1_in
             rotate_attention_output(layer, R2_mid, args)        # o_proj: R2_mid^T @ W
             rotate_mlp_input(layer, R2_mid, args)               # gate/up: W @ R2_mid
@@ -321,6 +330,11 @@ def rotate_model_respinquant(model, args, model_args=None):
             layer.Q_ffn = Q_ffn.to(dev)
             layer.M_ffn = M_ffn.to(dev)
 
+            del T_attn, T_ffn, R2_mid, R1_in
+            R1_in = R1_next  # carry forward as next layer's attn-input basis
+            torch.cuda.empty_cache()
+
+    del R1_in
     utils.cleanup_memory()
 
 
