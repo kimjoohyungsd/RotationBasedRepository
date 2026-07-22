@@ -325,7 +325,11 @@ class LlamaMLP(nn.Module):
         )
         self.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, x, R1):
+    def forward(self, x, R_in, R_out=None):
+        # ReSpinQuant: FFN input basis (R2^i) and output basis (R1^{i+1}) differ.
+        # gate/up absorb R_in (W @ R_in); down absorbs R_out (R_out^T @ W).
+        if R_out is None:
+            R_out = R_in
         # if self.config.pretraining_tp > 1:
         #     slice = self.intermediate_size // self.config.pretraining_tp
         #     gate_proj_slices = self.gate_proj.weight.split(slice, dim=0)
@@ -344,8 +348,8 @@ class LlamaMLP(nn.Module):
         #     down_proj = sum(down_proj)
         # else:
         down_proj = self.down_proj(
-            self.act_fn(self.gate_proj(x, R1)) * self.up_proj(x, R1),
-            R1,
+            self.act_fn(self.gate_proj(x, R_in)) * self.up_proj(x, R_in),
+            R_out,
             transpose=True,
         )
 
@@ -424,6 +428,7 @@ class LlamaAttention(nn.Module):
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
         R1=None,
+        R1_out=None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
@@ -535,7 +540,7 @@ class LlamaAttention(nn.Module):
         #         ]
         #     )
         # else:
-        attn_output = self.o_proj(attn_output, R1, R2=self.R2.weight, transpose=True)
+        attn_output = self.o_proj(attn_output, R1_out, R2=self.R2.weight, transpose=True)
 
         if not output_attentions:
             attn_weights = None
@@ -571,6 +576,7 @@ class LlamaFlashAttention2(LlamaAttention):
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
         R1=None,
+        R1_out=None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if isinstance(past_key_value, StaticCache):
             raise ValueError(
@@ -668,7 +674,7 @@ class LlamaFlashAttention2(LlamaAttention):
         )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
-        attn_output = self.o_proj(attn_output, R1, R2=self.R2.weight, transpose=True)
+        attn_output = self.o_proj(attn_output, R1_out, R2=self.R2.weight, transpose=True)
 
         if not output_attentions:
             attn_weights = None
@@ -697,6 +703,7 @@ class LlamaSdpaAttention(LlamaAttention):
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
         R1=None,
+        R1_out=None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if output_attentions:
@@ -783,7 +790,7 @@ class LlamaSdpaAttention(LlamaAttention):
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.view(bsz, q_len, -1)
 
-        attn_output = self.o_proj(attn_output, R1, R2=self.R2.weight, transpose=True)
+        attn_output = self.o_proj(attn_output, R1_out, R2=self.R2.weight, transpose=True)
 
         return attn_output, None, past_key_value
 
@@ -805,6 +812,15 @@ class LlamaDecoderLayer(nn.Module):
         )
 
         self.mlp = LlamaMLP(config)
+        # Shared config ref: optimize_rotation.py sets config.respinquant to pick
+        # the training mode at runtime.
+        self.config = config
+        # ReSpinQuant residual-stream rotations (hidden x hidden), attached in
+        # optimize_rotation.py. R1 = attn-input / prev-FFN-output basis;
+        # R2 = attn-output / FFN-input basis. (self_attn.R2 is the separate
+        # head_dim rotation = paper's R3.) Stay None in SpinQuant mode.
+        self.R1 = None
+        self.R2 = None
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
@@ -823,6 +839,7 @@ class LlamaDecoderLayer(nn.Module):
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
         R1=None,
+        R1_out=None,
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
@@ -849,30 +866,73 @@ class LlamaDecoderLayer(nn.Module):
                 Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
                 into the model
         """
-        residual = hidden_states
+        if getattr(self.config, "respinquant", False):
+            # ---------- ReSpinQuant: per-layer residual bases ----------
+            #   R1_in  = this layer's attention-input basis (= self.R1)
+            #   R2_mid = attention-output / FFN-input basis  (= self.R2)
+            #   R1_next = next layer's attention-input basis (= FFN-output basis),
+            #             passed in as R1_out (model.R1_final for the last layer).
+            R1_in = self.R1.weight
+            R2_mid = self.R2.weight
+            R1_next = R1_out
 
-        hidden_states = self.input_layernorm(hidden_states)
+            residual = hidden_states  # in R1_in basis
+            hidden_states = self.input_layernorm(hidden_states)
 
-        # Self Attention
-        hidden_states, self_attn_weights, present_key_value = self.self_attn(
-            hidden_states=hidden_states,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_value=past_key_value,
-            output_attentions=output_attentions,
-            use_cache=use_cache,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
-            R1=R1,
-            **kwargs,
-        )
-        hidden_states = residual + hidden_states
+            # Self Attention: q/k/v absorb R1_in (input), o_proj absorbs R2_mid (output)
+            hidden_states, self_attn_weights, present_key_value = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                R1=R1_in,
+                R1_out=R2_mid,
+                **kwargs,
+            )
+            # Residual transition: bring the skip from R1_in basis into R2_mid basis.
+            # x @ (R1_in^T R2_mid) = (x_orig @ R1_in) @ R1_in^T R2_mid = x_orig @ R2_mid.
+            # R1_in / R2_mid are fp32 params -> keep the transition in fp32 (fp64 here
+            # would blow up the gradient-checkpoint recompute peak).
+            T_attn = R1_in.t() @ R2_mid
+            residual = (residual.float() @ T_attn).to(hidden_states.dtype)
+            hidden_states = residual + hidden_states  # now in R2_mid basis
 
-        # Fully Connected
-        residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states, R1=R1)
-        hidden_states = residual + hidden_states
+            # Fully Connected: gate/up absorb R2_mid (input), down absorbs R1_next (output)
+            residual = hidden_states  # in R2_mid basis
+            hidden_states = self.post_attention_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states, R_in=R2_mid, R_out=R1_next)
+            # Residual transition: bring the skip from R2_mid basis into R1_next basis.
+            T_ffn = R2_mid.t() @ R1_next
+            residual = (residual.float() @ T_ffn).to(hidden_states.dtype)
+            hidden_states = residual + hidden_states  # now in R1_next basis
+        else:
+            # ---------- SpinQuant: single global R1, identity residual (T = I) ----------
+            residual = hidden_states
+            hidden_states = self.input_layernorm(hidden_states)
+
+            hidden_states, self_attn_weights, present_key_value = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                R1=R1,
+                R1_out=R1,
+                **kwargs,
+            )
+            hidden_states = residual + hidden_states
+
+            residual = hidden_states
+            hidden_states = self.post_attention_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states, R_in=R1, R_out=R1)
+            hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
 
@@ -1034,6 +1094,9 @@ class LlamaModel(LlamaPreTrainedModel):
         self.norm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = LlamaRotaryEmbedding(config=config)
         self.gradient_checkpointing = False
+        # ReSpinQuant: final residual basis (last FFN-output basis), un-rotated
+        # before lm_head. Attached in optimize_rotation.py.
+        self.R1_final = None
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1085,13 +1148,22 @@ class LlamaModel(LlamaPreTrainedModel):
             )
             use_cache = False
 
+        respinquant = getattr(self.config, "respinquant", False)
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-        if R1 is not None:
+        if respinquant:
+            # ReSpinQuant: put the residual stream into layer 0's attention-input basis.
+            R1_embed = self.layers[0].R1.weight
             dtype = inputs_embeds.dtype
-            inputs_embeds = (inputs_embeds.to(torch.float64) @ R1.to(torch.float64)).to(
-                dtype
-            )
+            inputs_embeds = (
+                inputs_embeds.to(torch.float64) @ R1_embed.to(torch.float64)
+            ).to(dtype)
+        elif R1 is not None:
+            # SpinQuant: single global R1 applied to the embeddings.
+            dtype = inputs_embeds.dtype
+            inputs_embeds = (
+                inputs_embeds.to(torch.float64) @ R1.to(torch.float64)
+            ).to(dtype)
 
         return_legacy_cache = False
         if (
@@ -1133,9 +1205,25 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
-        for decoder_layer in self.layers:
+        num_layers = len(self.layers)
+        for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
+
+            if respinquant:
+                # ReSpinQuant: the FFN-output basis of this layer is the next layer's
+                # attention-input basis (R1_final for the last layer). Each layer reads
+                # its own R1/R2 from self, so the R1 positional arg is unused (None).
+                layer_R1 = None
+                R1_next = (
+                    self.layers[idx + 1].R1.weight
+                    if idx + 1 < num_layers
+                    else self.R1_final.weight
+                )
+            else:
+                # SpinQuant: thread the single global R1 to every layer.
+                layer_R1 = R1
+                R1_next = None
 
             if self.gradient_checkpointing and self.training:
                 layer_outputs = self._gradient_checkpointing_func(
@@ -1148,7 +1236,8 @@ class LlamaModel(LlamaPreTrainedModel):
                     use_cache,
                     cache_position,
                     position_embeddings,
-                    R1,
+                    layer_R1,
+                    R1_next,
                 )
             else:
                 layer_outputs = decoder_layer(
@@ -1160,7 +1249,8 @@ class LlamaModel(LlamaPreTrainedModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
-                    R1=R1,
+                    R1=layer_R1,
+                    R1_out=R1_next,
                 )
 
             hidden_states = layer_outputs[0]
@@ -1374,15 +1464,22 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             cache_position=cache_position,
-            R1=self.R1.weight,
+            # SpinQuant threads the global R1 through the model; ReSpinQuant reads
+            # per-layer rotations internally (pass None).
+            R1=None if getattr(self.config, "respinquant", False) else self.R1.weight,
         )
 
         hidden_states = outputs[0]
-        if self.R1 is not None:
-            dtype = hidden_states.dtype
-            hidden_states = (
-                hidden_states.to(torch.float64) @ self.R1.weight.T.to(torch.float64)
-            ).to(dtype)
+        dtype = hidden_states.dtype
+        if getattr(self.config, "respinquant", False):
+            # ReSpinQuant: un-rotate from the last FFN-output basis (R1_final).
+            R1_last = self.model.R1_final.weight
+        else:
+            # SpinQuant: un-rotate from the single global R1.
+            R1_last = self.R1.weight
+        hidden_states = (
+            hidden_states.to(torch.float64) @ R1_last.T.to(torch.float64)
+        ).to(dtype)
 
         if self.config.pretraining_tp > 1:
             lm_head_slices = self.lm_head.weight.split(

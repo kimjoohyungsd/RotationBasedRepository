@@ -238,6 +238,92 @@ def rotate_ov_proj(layer, head_num, head_dim, R2=None,online_r2=False):
                 bias_reshaped = v_proj.bias.data.reshape(-1,head_dim) # (dim0//head_dim,head_dim) @ (head_dim,head_dim)
                 v_proj.bias.data = torch.matmul(bias_reshaped.to(dtype=torch.float32),R2.to(dtype=torch.float32,device=linear_device)).to(dtype=linear_dtype).reshape(original_shape)
 
+def compute_residual_subspace(T: torch.Tensor, rank: int):
+    """ReSpinQuant subspace residual rotation approximation (paper Sec. 3.3).
+
+    Given a residual transition matrix T = R_in^T R_out (D x D, applied as x @ T),
+    approximate it by a rank-r rotation confined to the principal mismatch subspace:
+        T_hat = I + Q (R_sub - I_r) Q^T
+    so that  x @ T_hat = x + ((x @ Q) @ M) @ Q^T,  with  M = R_sub - I_r.
+
+    Returns (Q [D, r], M [r, r]) in float32.
+    """
+    T = T.to(torch.float64)
+    D = T.shape[0]
+    r = min(rank, D)
+    I = torch.eye(D, dtype=T.dtype, device=T.device)
+    # (5) principal directions of the deviation Delta_T = T - I
+    U, _, _ = torch.linalg.svd(T - I)
+    Q = U[:, :r]                          # D x r
+    # (6) project T onto the subspace
+    T_sub = Q.T @ T @ Q                   # r x r
+    # (7)-(8) closest orthogonal matrix via polar decomposition (SVD)
+    Us, _, Vhs = torch.linalg.svd(T_sub)
+    R_sub = Us @ Vhs                      # r x r, in SO(r)
+    M = R_sub - torch.eye(r, dtype=T.dtype, device=T.device)
+    return Q.to(torch.float32).contiguous(), M.to(torch.float32).contiguous()
+
+
+@torch.inference_mode()
+def rotate_model_respinquant(model, args, model_args=None):
+    """ReSpinQuant offline fusion: fuse DISTINCT per-layer R1/R2 into each layer's
+    weights (as in global rotation), and install a low-rank subspace correction on
+    each residual connection to resolve the resulting basis mismatch."""
+    assert args.optimized_rotation_path is not None, (
+        "ReSpinQuant requires --optimized_rotation_path pointing to a trained R.bin"
+    )
+    ckpt = torch.load(args.optimized_rotation_path)
+    num_layers = model.config.num_hidden_layers
+    num_heads = model.config.num_attention_heads
+    head_dim = model.config.hidden_size // num_heads
+    rank = getattr(args, "residual_rank", 32)
+
+    def _load(key):
+        return ckpt[key].cuda().to(torch.float64)
+
+    # Per-layer residual-stream rotations and the final basis.
+    R1_list = [_load(f"model.layers.{i}.R1") for i in range(num_layers)]
+    R2_list = [_load(f"model.layers.{i}.R2") for i in range(num_layers)]
+    R1_final = _load("model.R1_final")
+
+    # Embedding uses layer 0's input basis; lm_head un-rotates the final basis.
+    if not args.deactivate_r1:
+        rotate_embeddings(model, R1_list[0], args, model_args)
+        rotate_head(model, R1_final, args)
+
+    utils.cleanup_memory()
+    layers = list(model.model.layers)
+    for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer", desc="Rotating (ReSpinQuant)")):
+        R1_in = R1_list[idx]                                    # attn input basis
+        R2_mid = R2_list[idx]                                   # attn out / ffn in basis
+        R1_next = R1_list[idx + 1] if idx + 1 < num_layers else R1_final
+
+        # Head rotation R3 (= SpinQuant's per-layer self_attn.R2)
+        if not args.deactivate_r2:
+            head_R2 = _load(f"model.layers.{idx}.self_attn.R2")
+            rotate_ov_proj(layer, num_heads, head_dim, R2=head_R2, online_r2=False)
+
+        if not args.deactivate_r1:
+            rotate_attention_inputs(layer, R1_in, args)         # q/k/v: W @ R1_in
+            rotate_attention_output(layer, R2_mid, args)        # o_proj: R2_mid^T @ W
+            rotate_mlp_input(layer, R2_mid, args)               # gate/up: W @ R2_mid
+            rotate_mlp_output(layer, R1_next, args)             # down: R1_next^T @ W
+
+            # Residual subspace corrections for the two basis transitions:
+            #   attn skip: R1_in -> R2_mid ;  ffn skip: R2_mid -> R1_next
+            T_attn = R1_in.T @ R2_mid
+            T_ffn = R2_mid.T @ R1_next
+            Q_attn, M_attn = compute_residual_subspace(T_attn, rank)
+            Q_ffn, M_ffn = compute_residual_subspace(T_ffn, rank)
+            dev = layer.self_attn.o_proj.weight.device
+            layer.Q_attn = Q_attn.to(dev)
+            layer.M_attn = M_attn.to(dev)
+            layer.Q_ffn = Q_ffn.to(dev)
+            layer.M_ffn = M_ffn.to(dev)
+
+    utils.cleanup_memory()
+
+
 @torch.inference_mode()
 def rotate_model(model, args,model_args=None):
 

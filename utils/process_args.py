@@ -42,6 +42,11 @@ class TrainingArguments(transformers.TrainingArguments):
             "help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)"
         },
     )
+    respinquant: bool = field(
+        default=False,
+        metadata={"help": "Train in RespinQuant Manner "}
+    )
+    
 
 
 def parser_gen():
@@ -160,6 +165,15 @@ def parser_gen():
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Deactivate R4 rotation Matrix mentioned in the SpinQuant paper"
+    )
+    # ReSpinQuant residual subspace rank (eval only). The `respinquant` flag itself
+    # lives on TrainingArguments (single source of truth) and is copied onto ptq_args
+    # in process_args_ptq(), so it is intentionally NOT defined here.
+    parser.add_argument(
+        '--residual_rank',
+        type=int,
+        default=32,
+        help="Rank r of the ReSpinQuant residual subspace approximation (paper default: 32)"
     )
     parser.add_argument(
         "--fp32_had",
@@ -418,6 +432,8 @@ def process_args_ptq():
         ptq_args.optimized_rotation_path = model_args.optimized_rotation_path
     else:
         ptq_args.optimized_rotation_path = None
+    # Single source of truth: TrainingArguments.respinquant drives both training and PTQ.
+    ptq_args.respinquant = training_args.respinquant
     ptq_args.bsz = training_args.per_device_eval_batch_size
 
     return model_args, training_args, ptq_args

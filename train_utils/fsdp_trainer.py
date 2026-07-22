@@ -560,10 +560,21 @@ class FSDPTrainer(Trainer):
                     axis_names=("fsdp", "tensor"),
                 )
             )
-        # Do not wrap rotation matrix
-        self.accelerator.state.fsdp_plugin.ignored_modules = [model.R1] + [
-            layer.self_attn.R2 for layer in model.model.layers
-        ]
+        # Do not wrap (shard) rotation matrices: keep them full on every rank so the
+        # Cayley/Stiefel optimizer sees whole DxD matrices and cross-layer access
+        # (layers[i+1].R1, R1_final) stays valid under FSDP.
+        if getattr(model.config, "respinquant", False):
+            ignored_modules = []
+            for layer in model.model.layers:
+                ignored_modules.append(layer.R1)          # ReSpinQuant residual R1
+                ignored_modules.append(layer.R2)          # ReSpinQuant residual R2
+                ignored_modules.append(layer.self_attn.R2)  # head rotation (R3)
+            ignored_modules.append(model.model.R1_final)  # final basis
+            self.accelerator.state.fsdp_plugin.ignored_modules = ignored_modules
+        else:
+            self.accelerator.state.fsdp_plugin.ignored_modules = [model.R1] + [
+                layer.self_attn.R2 for layer in model.model.layers
+            ]
         # use_orig_params because part of the model is freezed
         self.accelerator.state.fsdp_plugin.use_orig_params = True
 

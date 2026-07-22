@@ -90,7 +90,7 @@ class ActQuantizer(torch.nn.Module):
     for the activations.
     """
 
-    def __init__(self,percolumn) -> None:
+    def __init__(self,percolumn=False) -> None:
         super(ActQuantizer, self).__init__()
         self.register_buffer("maxq", torch.tensor(0))
         self.register_buffer("scale", torch.zeros(1))
@@ -222,14 +222,14 @@ class ActQuantWrapper(torch.nn.Module):
     a pre-forward hook will be registered to rotate the activation before quantization.
     """
 
-    def __init__(self, module: torch.nn.Linear,percolumn) -> None:
+    def __init__(self, module: torch.nn.Linear,percolumn=False) -> None:
         super(ActQuantWrapper, self).__init__()
         # assert isinstance(module, torch.nn.Linear)
         self.module = module
         self.weight = module.weight
         self.bias = module.bias
-        self.quantizer = ActQuantizer(percolumn)
-        self.out_quantizer = ActQuantizer(percolumn)
+        self.quantizer = ActQuantizer(percolumn=percolumn)
+        self.out_quantizer = ActQuantizer(percolumn=percolumn)
         self.register_buffer("had_K", torch.tensor(0))
         self._buffers["had_K"] = None
         self.K = 1

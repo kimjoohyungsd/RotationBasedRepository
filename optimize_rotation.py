@@ -72,14 +72,41 @@ def train() -> None:
     model = prepare_model(ptq_args, model)
     for param in model.parameters():
         param.requires_grad = False
-    R1 = random_hadamard_matrix(model.config.hidden_size, "cuda")
-    model.R1 = RotateModule(R1)
-    for i in range(model.config.num_hidden_layers):
-        # Each head dim = 128 for Llama model
-        R2 = random_hadamard_matrix(
-            model.config.hidden_size // model.config.num_attention_heads, "cuda"
+
+    hidden_size = model.config.hidden_size
+    head_dim = hidden_size // model.config.num_attention_heads
+    num_layers = model.config.num_hidden_layers
+
+    # Propagate the training mode to the (shared) config so the modeling forward
+    # can pick the SpinQuant vs. ReSpinQuant path at runtime.
+    model.config.respinquant = training_args.respinquant
+
+    if training_args.respinquant:
+        # ---------- ReSpinQuant: full-size layer-wise residual-stream rotations ----------
+        #   layers[i].R1 : attention-input / previous-FFN-output basis (hidden x hidden)
+        #   layers[i].R2 : attention-output / FFN-input basis        (hidden x hidden)
+        #   model.model.R1_final : last FFN-output basis, un-rotated before lm_head
+        #   layers[i].self_attn.R2 : head_dim rotation (paper's R3)
+        for i in range(num_layers):
+            model.model.layers[i].R1 = RotateModule( # model.model.layers[i].R1 => Attention의 Input을 rotation
+                random_hadamard_matrix(hidden_size, "cuda")
+            )
+            model.model.layers[i].R2 = RotateModule( # model.model.layers[i].R2 => MLP의 Input을 rotation
+                random_hadamard_matrix(hidden_size, "cuda")
+            )
+            model.model.layers[i].self_attn.R2 = RotateModule( # SpinQuant에서 R2 위치를 Merging
+                random_hadamard_matrix(head_dim, "cuda")
+            )
+        model.model.R1_final = RotateModule( # 마지막 DecoderLayer의 MLP Block의 Output 축과 Lm head 단위의 Rotation
+            random_hadamard_matrix(hidden_size, "cuda")
         )
-        model.model.layers[i].self_attn.R2 = RotateModule(R2)
+    else:
+        # ---------- SpinQuant: single global R1 + per-layer head rotation R2 ----------
+        model.R1 = RotateModule(random_hadamard_matrix(hidden_size, "cuda"))
+        for i in range(num_layers):
+            model.model.layers[i].self_attn.R2 = RotateModule(
+                random_hadamard_matrix(head_dim, "cuda")
+            )
     if local_rank == 0:
         log.info("Model init completed for training {}".format(model))
         log.info("Start to load tokenizer...")
@@ -104,10 +131,18 @@ def train() -> None:
         block_size=min(training_args.model_max_length, 2048),
     )
 
-    trainable_parameters = [model.R1.weight] + [
-        model.model.layers[i].self_attn.R2.weight
-        for i in range(model.config.num_hidden_layers)
-    ]
+    if training_args.respinquant:
+        trainable_parameters = []
+        for i in range(num_layers):
+            trainable_parameters.append(model.model.layers[i].R1.weight)
+            trainable_parameters.append(model.model.layers[i].R2.weight)
+            trainable_parameters.append(model.model.layers[i].self_attn.R2.weight)
+        trainable_parameters.append(model.model.R1_final.weight)
+    else:
+        trainable_parameters = [model.R1.weight] + [
+            model.model.layers[i].self_attn.R2.weight
+            for i in range(num_layers)
+        ]
     model.seqlen = training_args.model_max_length
     optimizer = SGDG(trainable_parameters, lr=training_args.learning_rate, stiefel=True)
     MyTrainer = Trainer
@@ -144,10 +179,14 @@ def train() -> None:
     else:
         cpu_state = trainer.model.state_dict()
 
+    # ReSpinQuant saves per-layer residual rotations (layers.i.R1, layers.i.R2),
+    # the head rotation (layers.i.self_attn.R2) and the final basis (R1_final).
     R_dict = {
         key.replace(".weight", ""): value
         for key, value in cpu_state.items()
-        if "R1.weight" in key or "self_attn.R2" in key
+        if key.endswith("R1.weight")
+        or key.endswith("R2.weight")
+        or key.endswith("R1_final.weight")
     }
     if local_rank == 0:
         os.makedirs(model_args.output_rotation_path, exist_ok=True)

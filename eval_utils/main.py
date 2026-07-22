@@ -53,7 +53,12 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
             log.info("LayerNorm Fusion Applied For R1 Transform")
 
         
-        rotation_utils.rotate_model(model, args,model_args)
+        if getattr(args, "respinquant", False):
+            log.info("ReSpinQuant: per-layer R1/R2 fusion + residual subspace correction (rank={})".format(
+                getattr(args, "residual_rank", 32)))
+            rotation_utils.rotate_model_respinquant(model, args, model_args)
+        else:
+            rotation_utils.rotate_model(model, args,model_args)
         if not args.deactivate_r4:
             log.info("Applying R4 Transform")
             apply_r3_r4.rotate_model(model, args) # 실제로 R4 Rotation만 적용함

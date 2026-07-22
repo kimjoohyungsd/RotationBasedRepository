@@ -812,6 +812,12 @@ class LlamaDecoderLayer(nn.Module):
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
+        # ReSpinQuant residual subspace correction (installed by rotate_model_respinquant).
+        # Q_* : [hidden, r], M_* : [r, r]. When None, plain SpinQuant residual add.
+        self.Q_attn = None
+        self.M_attn = None
+        self.Q_ffn = None
+        self.M_ffn = None
 
     def forward(
         self,
@@ -867,12 +873,25 @@ class LlamaDecoderLayer(nn.Module):
             position_embeddings=position_embeddings,
             **kwargs,
         )
+        # ReSpinQuant: subspace-approximate the residual basis transition R1_in -> R2_mid.
+        # residual @ T_attn  ~=  residual + ((residual @ Q) @ M) @ Q^T
+        if self.Q_attn is not None:
+            residual = residual + (
+                (residual.float() @ self.Q_attn) @ self.M_attn
+            ) @ self.Q_attn.t()
+            residual = residual.to(hidden_states.dtype)
         hidden_states = residual + hidden_states
 
         # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
+        # ReSpinQuant: subspace-approximate the residual basis transition R2_mid -> R1_next.
+        if self.Q_ffn is not None:
+            residual = residual + (
+                (residual.float() @ self.Q_ffn) @ self.M_ffn
+            ) @ self.Q_ffn.t()
+            residual = residual.to(hidden_states.dtype)
         hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
