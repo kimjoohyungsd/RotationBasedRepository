@@ -812,12 +812,17 @@ class LlamaDecoderLayer(nn.Module):
         self.post_attention_layernorm = LlamaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
         )
-        # ReSpinQuant residual subspace correction (installed by rotate_model_respinquant).
-        # Q_* : [hidden, r], M_* : [r, r]. When None, plain SpinQuant residual add.
+        # ReSpinQuant residual basis correction (installed by rotate_model_respinquant).
+        # Two mutually-exclusive forms per residual:
+        #   - rank-r approximation:  Q_* [hidden, r], M_* [r, r]  -> residual + ((res@Q)@M)@Q^T
+        #   - exact full transition: T_* [hidden, hidden]         -> residual @ T
+        # When all are None, plain SpinQuant residual add (no correction).
         self.Q_attn = None
         self.M_attn = None
         self.Q_ffn = None
         self.M_ffn = None
+        self.T_attn = None
+        self.T_ffn = None
 
     def forward(
         self,
@@ -873,9 +878,12 @@ class LlamaDecoderLayer(nn.Module):
             position_embeddings=position_embeddings,
             **kwargs,
         )
-        # ReSpinQuant: subspace-approximate the residual basis transition R1_in -> R2_mid.
-        # residual @ T_attn  ~=  residual + ((residual @ Q) @ M) @ Q^T
-        if self.Q_attn is not None:
+        # ReSpinQuant: align the residual basis transition R1_in -> R2_mid.
+        if self.T_attn is not None:
+            # exact:  residual @ T_attn
+            residual = (residual.float() @ self.T_attn).to(hidden_states.dtype)
+        elif self.Q_attn is not None:
+            # rank-r subspace approx:  residual + ((residual @ Q) @ M) @ Q^T
             residual = residual + (
                 (residual.float() @ self.Q_attn) @ self.M_attn
             ) @ self.Q_attn.t()
@@ -886,8 +894,12 @@ class LlamaDecoderLayer(nn.Module):
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
         hidden_states = self.mlp(hidden_states)
-        # ReSpinQuant: subspace-approximate the residual basis transition R2_mid -> R1_next.
-        if self.Q_ffn is not None:
+        # ReSpinQuant: align the residual basis transition R2_mid -> R1_next.
+        if self.T_ffn is not None:
+            # exact:  residual @ T_ffn
+            residual = (residual.float() @ self.T_ffn).to(hidden_states.dtype)
+        elif self.Q_ffn is not None:
+            # rank-r subspace approx:  residual + ((residual @ Q) @ M) @ Q^T
             residual = residual + (
                 (residual.float() @ self.Q_ffn) @ self.M_ffn
             ) @ self.Q_ffn.t()
