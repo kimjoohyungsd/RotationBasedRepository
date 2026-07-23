@@ -54,8 +54,15 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
 
         
         if getattr(args, "respinquant", False):
-            log.info("ReSpinQuant: per-layer R1/R2 fusion + residual subspace correction (rank={})".format(
-                getattr(args, "residual_rank", 32)))
+            _rank = getattr(args, "residual_rank", 32)
+            _D = model.config.hidden_size
+            if getattr(args, "deactivate_residual", False):
+                _mode = "correction DEACTIVATED (basis mismatch left uncorrected)"
+            elif _rank <= 0 or _rank >= _D:
+                _mode = "EXACT full-rank correction (lossless at 16-bit)"
+            else:
+                _mode = "rank-{} subspace correction".format(_rank)
+            log.info("ReSpinQuant: per-layer R1/R2 fusion + {}".format(_mode))
             rotation_utils.rotate_model_respinquant(model, args, model_args)
         else:
             rotation_utils.rotate_model(model, args,model_args)

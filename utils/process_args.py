@@ -173,7 +173,17 @@ def parser_gen():
         '--residual_rank',
         type=int,
         default=32,
-        help="Rank r of the ReSpinQuant residual subspace approximation (paper default: 32)"
+        help="Rank r of the ReSpinQuant residual subspace approximation (paper default: 32). "
+             "Set r >= hidden_size (or r <= 0) to use the EXACT full-rank basis transition "
+             "(T_hat == T), which must be lossless at 16-bit."
+    )
+    parser.add_argument(
+        '--deactivate_residual',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Completely skip the ReSpinQuant residual subspace correction (Q/M left as None). "
+             "NOTE: with distinct per-layer R1/R2 this leaves a residual-stream basis mismatch, "
+             "so PPL is expected to be high even at 16-bit. Use only for A/B comparison."
     )
     parser.add_argument(
         "--fp32_had",

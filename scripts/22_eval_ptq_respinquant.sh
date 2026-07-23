@@ -30,3 +30,12 @@ python ptq.py \
 --optimized_rotation_path $5 \
 --wikitext2
 # add --lm_eval --tasks "piqa,arc_easy,..." for zero-shot accuracy
+#
+# ── 16-bit sanity checks (run with $2=$3=$4=16 to disable quantization) ──
+# 1) EXACT correction  → PPL MUST match the un-rotated baseline (fusion is lossless).
+#      --residual_rank 99999    (any r >= hidden_size, or r <= 0, triggers the exact path)
+#    If PPL matches baseline: fusion logic is correct, and high PPL at rank 32 is the
+#    approximation being too coarse. If it does NOT match: real bug in the fusion.
+# 2) Correction OFF    → expected to be HIGH even at 16-bit (per-layer R1/R2 leave a
+#    residual-stream basis mismatch). Use only as an A/B reference, not as a pass check.
+#      --deactivate_residual

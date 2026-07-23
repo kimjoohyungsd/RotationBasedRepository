@@ -250,6 +250,13 @@ def compute_residual_subspace(T: torch.Tensor, rank: int):
     """
     T = T.to(torch.float64)
     D = T.shape[0]
+    # Exact (full-rank) correction: rank <= 0 or rank >= D means "no approximation".
+    # Then T_hat == T exactly, so we skip the expensive SVD entirely and store the
+    # transition directly as Q = I, M = T - I  =>  x @ T_hat = x + (x @ I) @ (T - I) @ I^T = x @ T.
+    if rank <= 0 or rank >= D:
+        M = (T - torch.eye(D, dtype=T.dtype, device=T.device))
+        Q = torch.eye(D, dtype=T.dtype, device=T.device)
+        return Q.to(torch.float32).contiguous(), M.to(torch.float32).contiguous()
     r = min(rank, D)
     I = torch.eye(D, dtype=T.dtype, device=T.device)
     # (5) principal directions of the deviation Delta_T = T - I
@@ -320,17 +327,20 @@ def rotate_model_respinquant(model, args, model_args=None):
 
             # Residual subspace corrections for the two basis transitions:
             #   attn skip: R1_in -> R2_mid ;  ffn skip: R2_mid -> R1_next
-            T_attn = R1_in.T @ R2_mid
-            T_ffn = R2_mid.T @ R1_next
-            Q_attn, M_attn = compute_residual_subspace(T_attn, rank)
-            Q_ffn, M_ffn = compute_residual_subspace(T_ffn, rank)
-            dev = layer.self_attn.o_proj.weight.device
-            layer.Q_attn = Q_attn.to(dev)
-            layer.M_attn = M_attn.to(dev)
-            layer.Q_ffn = Q_ffn.to(dev)
-            layer.M_ffn = M_ffn.to(dev)
-
-            del T_attn, T_ffn, R2_mid, R1_in
+            if getattr(args, "deactivate_residual", False):
+                # A/B switch: leave the basis mismatch uncorrected (Q/M stay None).
+                del R2_mid, R1_in
+            else:
+                T_attn = R1_in.T @ R2_mid
+                T_ffn = R2_mid.T @ R1_next
+                Q_attn, M_attn = compute_residual_subspace(T_attn, rank)
+                Q_ffn, M_ffn = compute_residual_subspace(T_ffn, rank)
+                dev = layer.self_attn.o_proj.weight.device
+                layer.Q_attn = Q_attn.to(dev)
+                layer.M_attn = M_attn.to(dev)
+                layer.Q_ffn = Q_ffn.to(dev)
+                layer.M_ffn = M_ffn.to(dev)
+                del T_attn, T_ffn, R2_mid, R1_in
             R1_in = R1_next  # carry forward as next layer's attn-input basis
             torch.cuda.empty_cache()
 
