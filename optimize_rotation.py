@@ -20,7 +20,7 @@ from train_utils.main import prepare_model
 from train_utils.modeling_llama_quant import LlamaForCausalLM as LlamaForCausalLMQuant
 from train_utils.optimizer import SGDG
 from utils.data_utils import CustomJsonDataset
-from utils.hadamard_utils import random_hadamard_matrix
+from utils.hadamard_utils import random_hadamard_matrix, hadamard_matrix
 from utils.process_args import process_args_ptq
 from utils.utils import get_local_rank, get_logger, pt_fsdp_state_dict
 
@@ -87,18 +87,25 @@ def train() -> None:
         #   layers[i].R2 : attention-output / FFN-input basis        (hidden x hidden)
         #   model.model.R1_final : last FFN-output basis, un-rotated before lm_head
         #   layers[i].self_attn.R2 : head_dim rotation (paper's R3)
+        # Residual-stream rotations (R1, R2, R1_final) MUST share the SAME Hadamard base
+        # so that the residual transition T = R1_in^T R2_mid ~= H^T H = I at init (paper Eq. 4).
+        # Using independent random_hadamard_matrix() per matrix gives distinct sign diagonals,
+        # so T = diag(s1 ⊙ s2) != I and Delta_T = T - I is full-rank, which breaks the rank-r
+        # residual subspace approximation. `hadamard_matrix` is the deterministic Walsh-Hadamard
+        # (no random sign), so every call returns the identical H -> T = I at init. Cayley then
+        # lets each R deviate slightly, keeping Delta_T low-rank as the method requires.
         for i in range(num_layers):
             model.model.layers[i].R1 = RotateModule( # model.model.layers[i].R1 => Attention의 Input을 rotation
-                random_hadamard_matrix(hidden_size, "cuda")
+                hadamard_matrix(hidden_size, "cuda")
             )
             model.model.layers[i].R2 = RotateModule( # model.model.layers[i].R2 => MLP의 Input을 rotation
-                random_hadamard_matrix(hidden_size, "cuda")
+                hadamard_matrix(hidden_size, "cuda")
             )
-            model.model.layers[i].self_attn.R2 = RotateModule( # SpinQuant에서 R2 위치를 Merging
+            model.model.layers[i].self_attn.R2 = RotateModule( # R3 (head_dim): fused inside attention, never crosses a residual add -> independent random is fine
                 random_hadamard_matrix(head_dim, "cuda")
             )
         model.model.R1_final = RotateModule( # 마지막 DecoderLayer의 MLP Block의 Output 축과 Lm head 단위의 Rotation
-            random_hadamard_matrix(hidden_size, "cuda")
+            hadamard_matrix(hidden_size, "cuda")
         )
     else:
         # ---------- SpinQuant: single global R1 + per-layer head rotation R2 ----------
