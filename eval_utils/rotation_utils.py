@@ -323,13 +323,16 @@ def rotate_model_respinquant(model, args, model_args=None):
 
             # Residual subspace corrections for the two basis transitions:
             #   attn skip: R1_in -> R2_mid ;  ffn skip: R2_mid -> R1_next
+            dev = layer.self_attn.o_proj.weight.device
+            T_attn = R1_in.T @ R2_mid
+            T_ffn = R2_mid.T @ R1_next
             if getattr(args, "deactivate_residual", False):
                 # A/B switch: leave the basis mismatch uncorrected (Q/M/T stay None).
+                layer.T_attn = T_attn.to(device=dev, dtype=torch.float32).contiguous()
+                layer.T_ffn = T_ffn.to(device=dev, dtype=torch.float32).contiguous()
                 del R2_mid, R1_in
             else:
-                T_attn = R1_in.T @ R2_mid
-                T_ffn = R2_mid.T @ R1_next
-                dev = layer.self_attn.o_proj.weight.device
+                
                 D = T_attn.shape[0]
                 if rank <= 0 or rank >= D:
                     # Exact full-rank correction: store T directly (forward: residual @ T).

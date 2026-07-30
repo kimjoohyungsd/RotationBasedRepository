@@ -115,6 +115,7 @@ def train() -> None:
     
     if ptq_args.per_column:
         log.info("Quantization is done on column wise manner")
+        
     if 'Llama-3' in model_args.input_model:
         tokenizer = PreTrainedTokenizerFast.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,

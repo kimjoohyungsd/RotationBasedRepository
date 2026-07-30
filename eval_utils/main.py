@@ -248,7 +248,7 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
                 "k_sym": not (args.k_asym),
                 "k_clip_ratio": args.k_clip_ratio,
             }
-            if args.rotate and not args.offline and not args.deactivate_r3:
+            if args.rotate and not args.deactivate_r3:
                 for layer in layers:
                     rotation_utils.add_qk_rotation_wrapper_after_function_call_in_forward( # 해당 instance만 apply_rotary_pos_emb가 QkrotationWrapper의 binding되도록 할당함
                         layer.self_attn,
