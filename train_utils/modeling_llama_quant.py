@@ -840,6 +840,7 @@ class LlamaDecoderLayer(nn.Module):
         ] = None,  # will become mandatory in v4.46
         R1=None,
         R1_out=None,
+        lie_ctx=None,
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
@@ -866,7 +867,45 @@ class LlamaDecoderLayer(nn.Module):
                 Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
                 into the model
         """
-        if getattr(self.config, "respinquant", False):
+        if lie_ctx is not None:
+            # ---------- LieReSpinQuant: per-layer bases from a Lie chain ----------
+            # The bases come from B_{k+1} = B_k @ dR_k, so the residual transition is
+            # dR_k itself and is available in its low-rank factored form (P, Z) with
+            # dR = I + P Z P^T.  We therefore never form R_in^T R_out (a D x D matmul
+            # per skip); the skip costs O(D r) instead of O(D^2).
+            R1_in, R2_mid, R1_next, (P_attn, Z_attn), (P_ffn, Z_ffn) = lie_ctx
+
+            residual = hidden_states  # in R1_in basis
+            hidden_states = self.input_layernorm(hidden_states)
+
+            hidden_states, self_attn_weights, present_key_value = self.self_attn(
+                hidden_states=hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_value,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                position_embeddings=position_embeddings,
+                R1=R1_in,
+                R1_out=R2_mid,
+                **kwargs,
+            )
+            # skip: R1_in basis -> R2_mid basis, exactly (no approximation)
+            res32 = residual.float()
+            residual = (res32 + ((res32 @ P_attn) @ Z_attn) @ P_attn.t()).to(
+                hidden_states.dtype)
+            hidden_states = residual + hidden_states  # now in R2_mid basis
+
+            residual = hidden_states  # in R2_mid basis
+            hidden_states = self.post_attention_layernorm(hidden_states)
+            hidden_states = self.mlp(hidden_states, R_in=R2_mid, R_out=R1_next)
+            # skip: R2_mid basis -> R1_next basis
+            res32 = residual.float()
+            residual = (res32 + ((res32 @ P_ffn) @ Z_ffn) @ P_ffn.t()).to(
+                hidden_states.dtype)
+            hidden_states = residual + hidden_states  # now in R1_next basis
+        elif getattr(self.config, "respinquant", False):
             # ---------- ReSpinQuant: per-layer residual bases ----------
             #   R1_in  = this layer's attention-input basis (= self.R1)
             #   R2_mid = attention-output / FFN-input basis  (= self.R2)
@@ -1097,6 +1136,11 @@ class LlamaModel(LlamaPreTrainedModel):
         # ReSpinQuant: final residual basis (last FFN-output basis), un-rotated
         # before lm_head. Attached in optimize_rotation.py.
         self.R1_final = None
+        # LieReSpinQuant: a utils.lie_rotation.LieBasisChain producing all 2L+1
+        # bases from one fixed Hadamard base plus 2L low-rank Cayley transitions.
+        # Attached in optimize_rotation.py; None in the other modes.
+        self.lie_chain = None
+        self._lie_last_basis = None
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -1149,9 +1193,27 @@ class LlamaModel(LlamaPreTrainedModel):
             use_cache = False
 
         respinquant = getattr(self.config, "respinquant", False)
+        # LieReSpinQuant: materialise the 2L+1 bases (and keep every transition in
+        # its low-rank (P, Z) form) once per forward. `lie_bases[2i] = layers[i].R1`,
+        # `lie_bases[2i+1] = layers[i].R2`, `lie_bases[2L] = R1_final`.
+        lie_factors = lie_bases = None
+        if self.lie_chain is not None:
+            lie_factors = self.lie_chain.transition_factors()
+            lie_bases = self.lie_chain.bases(lie_factors)
+            # hand the last basis to LlamaForCausalLM.forward for the lm_head
+            # un-rotation, keeping it inside this forward's autograd graph.
+            self._lie_last_basis = lie_bases[-1]
+
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-        if respinquant:
+        if lie_bases is not None:
+            # put the residual stream into layer 0's attention-input basis
+            R1_embed = lie_bases[0]
+            dtype = inputs_embeds.dtype
+            inputs_embeds = (
+                inputs_embeds.to(torch.float64) @ R1_embed.to(torch.float64)
+            ).to(dtype)
+        elif respinquant:
             # ReSpinQuant: put the residual stream into layer 0's attention-input basis.
             R1_embed = self.layers[0].R1.weight
             dtype = inputs_embeds.dtype
@@ -1210,7 +1272,19 @@ class LlamaModel(LlamaPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            if respinquant:
+            lie_ctx = None
+            if lie_bases is not None:
+                # boundaries 2i / 2i+1 / 2i+2 and the two transitions between them
+                lie_ctx = (
+                    lie_bases[2 * idx],       # R1_in
+                    lie_bases[2 * idx + 1],   # R2_mid
+                    lie_bases[2 * idx + 2],   # R1_next
+                    lie_factors[2 * idx],     # (P, Z) for the attention skip
+                    lie_factors[2 * idx + 1],  # (P, Z) for the FFN skip
+                )
+                layer_R1 = None
+                R1_next = None
+            elif respinquant:
                 # ReSpinQuant: the FFN-output basis of this layer is the next layer's
                 # attention-input basis (R1_final for the last layer). Each layer reads
                 # its own R1/R2 from self, so the R1 positional arg is unused (None).
@@ -1238,6 +1312,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     position_embeddings,
                     layer_R1,
                     R1_next,
+                    lie_ctx,
                 )
             else:
                 layer_outputs = decoder_layer(
@@ -1251,6 +1326,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     position_embeddings=position_embeddings,
                     R1=layer_R1,
                     R1_out=R1_next,
+                    lie_ctx=lie_ctx,
                 )
 
             hidden_states = layer_outputs[0]
@@ -1471,7 +1547,10 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
 
         hidden_states = outputs[0]
         dtype = hidden_states.dtype
-        if getattr(self.config, "respinquant", False):
+        if self.model.lie_chain is not None:
+            # LieReSpinQuant: un-rotate from the last basis of the Lie chain.
+            R1_last = self.model._lie_last_basis
+        elif getattr(self.config, "respinquant", False):
             # ReSpinQuant: un-rotate from the last FFN-output basis (R1_final).
             R1_last = self.model.R1_final.weight
         else:
@@ -1513,6 +1592,11 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
+            # LieReSpinQuant: L1 on the rotation gates lets each transition find its
+            # own effective rank instead of every layer paying a uniform r.
+            gate_l1 = getattr(self.config, "lie_gate_l1", 0.0)
+            if self.model.lie_chain is not None and gate_l1 > 0:
+                loss = loss + gate_l1 * self.model.lie_chain.gate_l1().to(loss.dtype)
 
         if not return_dict:
             output = (logits,) + outputs[1:]

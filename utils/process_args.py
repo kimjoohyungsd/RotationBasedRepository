@@ -46,7 +46,36 @@ class TrainingArguments(transformers.TrainingArguments):
         default=False,
         metadata={"help": "Train in RespinQuant Manner "}
     )
-    
+    lierespinquant: bool = field(
+        default=False,
+        metadata={
+            "help": "Train in LieReSpinQuant manner: instead of learning 2L+1 dense "
+                    "D x D bases and compressing the residual transitions with SVD "
+                    "afterwards, learn each transition directly as a low-rank "
+                    "skew-symmetric Cayley rotation. Exactly orthogonal (and in SO(D)) "
+                    "by construction, O(L D r) parameters, and already efficient at "
+                    "inference -- nothing is approximated post-hoc. Implies respinquant "
+                    "residual-stream layout."
+        },
+    )
+    lie_rank: int = field(
+        default=32,
+        metadata={"help": "r_max: learned rotation planes per residual transition. "
+                          "The skew generator has rank <= 2r."},
+    )
+    lie_gate_l1: float = field(
+        default=0.0,
+        metadata={"help": "L1 penalty on the rotation gates gamma. > 0 lets each "
+                          "transition settle on its own effective rank instead of a "
+                          "uniform r (addresses ReSpinQuant's fixed-rank-per-layer)."},
+    )
+    lie_gate_init: float = field(
+        default=1e-2,
+        metadata={"help": "Std of the initial gates. Near-identity start, so training "
+                          "begins from the plain SpinQuant single-rotation solution."},
+    )
+
+
 
 
 def parser_gen():
@@ -442,8 +471,13 @@ def process_args_ptq():
         ptq_args.optimized_rotation_path = model_args.optimized_rotation_path
     else:
         ptq_args.optimized_rotation_path = None
-    # Single source of truth: TrainingArguments.respinquant drives both training and PTQ.
-    ptq_args.respinquant = training_args.respinquant
+    # Single source of truth: TrainingArguments drives both training and PTQ.
+    # LieReSpinQuant uses the ReSpinQuant residual-stream layout, so it implies it.
+    ptq_args.lierespinquant = training_args.lierespinquant
+    ptq_args.respinquant = training_args.respinquant or training_args.lierespinquant
+    ptq_args.lie_rank = training_args.lie_rank
+    ptq_args.lie_gate_l1 = training_args.lie_gate_l1
+    ptq_args.lie_gate_init = training_args.lie_gate_init
     ptq_args.bsz = training_args.per_device_eval_batch_size
 
     return model_args, training_args, ptq_args

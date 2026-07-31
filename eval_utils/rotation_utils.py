@@ -268,6 +268,92 @@ def compute_residual_subspace(T: torch.Tensor, rank: int):
 
 
 @torch.inference_mode()
+def rotate_model_lierespinquant(model, args, model_args=None):
+    """LieReSpinQuant offline fusion.
+
+    Same weight fusion as :func:`rotate_model_respinquant`, but the bases are
+    rebuilt from the learned Lie chain
+
+        B_0 = Hadamard (fixed),   B_{k+1} = B_k @ dR_k,
+        dR_k = Cayley(U_k diag(g_k) V_k^T - V_k diag(g_k) U_k^T) = I + P_k Z_k P_k^T
+
+    so the residual transition ``B_k^T B_{k+1}`` *is* ``dR_k`` and is already in
+    rank-2r factored form.  There is no SVD, no polar decomposition and no
+    determinant correction: the installed correction is the exact learned
+    rotation, not a truncated approximation of a dense one.
+
+    The factors are stored in the same ``Q_attn``/``M_attn`` slots the eval
+    forward already uses, since it computes ``residual + ((residual @ Q) @ M) @ Q^T``
+    -- with ``Q = P`` and ``M = Z`` that is exactly ``residual @ dR``.
+    """
+    from utils.lie_rotation import bases_from_factors, cayley_lowrank_factors
+
+    assert args.optimized_rotation_path is not None, (
+        "LieReSpinQuant requires --optimized_rotation_path pointing to a trained R.bin"
+    )
+    ckpt = torch.load(args.optimized_rotation_path, map_location="cpu")
+    num_layers = model.config.num_hidden_layers
+    num_heads = model.config.num_attention_heads
+    head_dim = model.config.hidden_size // num_heads
+    num_transitions = 2 * num_layers
+
+    # Locate the chain regardless of the FSDP/DDP prefix the checkpoint was saved with.
+    base_key = next(k for k in ckpt if k.endswith("lie_chain.base"))
+    prefix = base_key[: -len("base")]
+    base = ckpt[base_key].to(device="cuda", dtype=torch.float32)
+
+    factors = []
+    for k in range(num_transitions):
+        U = ckpt[f"{prefix}deltas.{k}.U"].to(device="cuda", dtype=torch.float32)
+        V = ckpt[f"{prefix}deltas.{k}.V"].to(device="cuda", dtype=torch.float32)
+        g = ckpt[f"{prefix}deltas.{k}.gamma"].to(device="cuda", dtype=torch.float32)
+        factors.append(cayley_lowrank_factors(U, V, g))
+    bases = bases_from_factors(base, factors)   # 2L+1 tensors, D x D
+    assert len(bases) == num_transitions + 1
+
+    def _head_R2(idx):
+        key = next(k for k in ckpt if k.endswith(f"layers.{idx}.self_attn.R2"))
+        return ckpt[key].to(device="cuda", dtype=torch.float32)
+
+    if not args.deactivate_r1:
+        rotate_embeddings(model, bases[0], args, model_args)
+        rotate_head(model, bases[-1], args)
+        utils.cleanup_memory()
+
+    layers = list(model.model.layers)
+    for idx, layer in enumerate(tqdm.tqdm(layers, unit="layer",
+                                          desc="Rotating (LieReSpinQuant)")):
+        if not args.deactivate_r2:
+            rotate_ov_proj(layer, num_heads, head_dim, R2=_head_R2(idx), online_r2=False)
+
+        if not args.deactivate_r1:
+            R1_in = bases[2 * idx]
+            R2_mid = bases[2 * idx + 1]
+            R1_next = bases[2 * idx + 2]
+
+            rotate_attention_inputs(layer, R1_in, args)      # q/k/v: W @ R1_in
+            rotate_attention_output(layer, R2_mid, args)     # o_proj: R2_mid^T @ W
+            rotate_mlp_input(layer, R2_mid, args)            # gate/up: W @ R2_mid
+            rotate_mlp_output(layer, R1_next, args)          # down: R1_next^T @ W
+
+            dev = layer.self_attn.o_proj.weight.device
+            if getattr(args, "deactivate_residual", False):
+                pass  # A/B switch: leave the basis mismatch uncorrected
+            else:
+                P_attn, Z_attn = factors[2 * idx]
+                P_ffn, Z_ffn = factors[2 * idx + 1]
+                # residual + ((residual @ P) @ Z) @ P^T  ==  residual @ dR, exactly
+                layer.Q_attn = P_attn.to(dev).contiguous()
+                layer.M_attn = Z_attn.to(dev).contiguous()
+                layer.Q_ffn = P_ffn.to(dev).contiguous()
+                layer.M_ffn = Z_ffn.to(dev).contiguous()
+            torch.cuda.empty_cache()
+
+    del bases, factors
+    utils.cleanup_memory()
+
+
+@torch.inference_mode()
 def rotate_model_respinquant(model, args, model_args=None):
     """ReSpinQuant offline fusion: fuse DISTINCT per-layer R1/R2 into each layer's
     weights (as in global rotation), and install a low-rank subspace correction on

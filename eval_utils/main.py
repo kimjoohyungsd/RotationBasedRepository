@@ -53,7 +53,14 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
             log.info("LayerNorm Fusion Applied For R1 Transform")
 
         
-        if getattr(args, "respinquant", False):
+        if getattr(args, "lierespinquant", False):
+            log.info(
+                "LieReSpinQuant: per-layer basis fusion + EXACT rank-{} Cayley "
+                "residual transitions (no SVD, orthogonal by construction)".format(
+                    2 * getattr(args, "lie_rank", 32))
+            )
+            rotation_utils.rotate_model_lierespinquant(model, args, model_args)
+        elif getattr(args, "respinquant", False):
             _rank = getattr(args, "residual_rank", 32)
             _D = model.config.hidden_size
             if getattr(args, "deactivate_residual", False):

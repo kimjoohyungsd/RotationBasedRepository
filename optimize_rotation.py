@@ -21,6 +21,7 @@ from train_utils.modeling_llama_quant import LlamaForCausalLM as LlamaForCausalL
 from train_utils.optimizer import SGDG
 from utils.data_utils import CustomJsonDataset
 from utils.hadamard_utils import random_hadamard_matrix, hadamard_matrix
+from utils.lie_rotation import LieBasisChain
 from utils.process_args import process_args_ptq
 from utils.utils import get_local_rank, get_logger, pt_fsdp_state_dict
 
@@ -79,9 +80,42 @@ def train() -> None:
 
     # Propagate the training mode to the (shared) config so the modeling forward
     # can pick the SpinQuant vs. ReSpinQuant path at runtime.
-    model.config.respinquant = training_args.respinquant
+    model.config.respinquant = training_args.respinquant or training_args.lierespinquant
+    model.config.lierespinquant = training_args.lierespinquant
+    model.config.lie_gate_l1 = training_args.lie_gate_l1
 
-    if training_args.respinquant:
+    if training_args.lierespinquant:
+        # ---------- LieReSpinQuant: low-rank Cayley residual transitions ----------
+        # One fixed Hadamard base B0 plus 2L learned transitions dR_k, with
+        #     bases[0] = B0,   bases[k+1] = bases[k] @ dR_k,
+        #     dR_k = Cayley(U_k diag(g_k) V_k^T - V_k diag(g_k) U_k^T).
+        # Every dR_k is exactly orthogonal and in SO(D) by construction, and is
+        # already the low-rank object the residual stream pays for at inference --
+        # there is no dense-then-SVD step.  Parameters: 2L * (2 D r + r) instead of
+        # (2L+1) * D^2.
+        model.model.lie_chain = LieBasisChain(
+            dim=hidden_size,
+            num_layers=num_layers,
+            rank=training_args.lie_rank,
+            base=hadamard_matrix(hidden_size, "cuda"),
+            gate_init=training_args.lie_gate_init,
+            device="cuda",
+        ).to("cuda")
+        # R3 (head_dim) never crosses a residual add, so it stays a dense Stiefel
+        # rotation exactly as in SpinQuant/ReSpinQuant.
+        for i in range(num_layers):
+            model.model.layers[i].self_attn.R2 = RotateModule(
+                random_hadamard_matrix(head_dim, "cuda")
+            )
+        n_lie = sum(p.numel() for p in model.model.lie_chain.trainable_parameters())
+        n_dense = (2 * num_layers + 1) * hidden_size * hidden_size
+        if local_rank == 0:
+            log.info(
+                "LieReSpinQuant: rank={} -> {:.1f}M transition parameters "
+                "({:.0f}x fewer than ReSpinQuant's {:.1f}M dense bases)".format(
+                    training_args.lie_rank, n_lie / 1e6, n_dense / n_lie, n_dense / 1e6)
+            )
+    elif training_args.respinquant:
         # ---------- ReSpinQuant: full-size layer-wise residual-stream rotations ----------
         #   layers[i].R1 : attention-input / previous-FFN-output basis (hidden x hidden)
         #   layers[i].R2 : attention-output / FFN-input basis        (hidden x hidden)
@@ -138,20 +172,39 @@ def train() -> None:
         block_size=min(training_args.model_max_length, 2048),
     )
 
-    if training_args.respinquant:
-        trainable_parameters = []
-        for i in range(num_layers):
-            trainable_parameters.append(model.model.layers[i].R1.weight)
-            trainable_parameters.append(model.model.layers[i].R2.weight)
-            trainable_parameters.append(model.model.layers[i].self_attn.R2.weight)
-        trainable_parameters.append(model.model.R1_final.weight)
-    else:
-        trainable_parameters = [model.R1.weight] + [
-            model.model.layers[i].self_attn.R2.weight
-            for i in range(num_layers)
+    if training_args.lierespinquant:
+        # Two groups: the Cayley factors live in a flat Euclidean space (their
+        # orthogonality comes from the parameterization, not from the optimizer),
+        # while the head rotation R3 is still a point on the Stiefel manifold.
+        lie_params = model.model.lie_chain.trainable_parameters()
+        head_params = [
+            model.model.layers[i].self_attn.R2.weight for i in range(num_layers)
         ]
+        trainable_parameters = lie_params + head_params
+        optimizer = SGDG(
+            [
+                {"params": lie_params, "stiefel": False},
+                {"params": head_params, "stiefel": True},
+            ],
+            lr=training_args.learning_rate,
+            stiefel=True,
+        )
+    else:
+        if training_args.respinquant:
+            trainable_parameters = []
+            for i in range(num_layers):
+                trainable_parameters.append(model.model.layers[i].R1.weight)
+                trainable_parameters.append(model.model.layers[i].R2.weight)
+                trainable_parameters.append(model.model.layers[i].self_attn.R2.weight)
+            trainable_parameters.append(model.model.R1_final.weight)
+        else:
+            trainable_parameters = [model.R1.weight] + [
+                model.model.layers[i].self_attn.R2.weight
+                for i in range(num_layers)
+            ]
+        optimizer = SGDG(
+            trainable_parameters, lr=training_args.learning_rate, stiefel=True)
     model.seqlen = training_args.model_max_length
-    optimizer = SGDG(trainable_parameters, lr=training_args.learning_rate, stiefel=True)
     MyTrainer = Trainer
     # Use FSDP for 70B rotation training
     if training_args.fsdp != "" and training_args.fsdp != []:
@@ -188,13 +241,31 @@ def train() -> None:
 
     # ReSpinQuant saves per-layer residual rotations (layers.i.R1, layers.i.R2),
     # the head rotation (layers.i.self_attn.R2) and the final basis (R1_final).
-    R_dict = {
-        key.replace(".weight", ""): value
-        for key, value in cpu_state.items()
-        if key.endswith("R1.weight")
-        or key.endswith("R2.weight")
-        or key.endswith("R1_final.weight")
-    }
+    if training_args.lierespinquant:
+        # Save the Lie chain (base + per-transition U/V/gamma) and the head
+        # rotations. eval_utils.rotation_utils.rotate_model_lierespinquant
+        # rebuilds every basis from these.
+        R_dict = {
+            key.replace(".weight", ""): value
+            for key, value in cpu_state.items()
+            if ".lie_chain." in key or key.endswith("self_attn.R2.weight")
+        }
+        R_dict["_lie_meta"] = {
+            "rank": training_args.lie_rank,
+            "num_layers": num_layers,
+            "hidden_size": hidden_size,
+        }
+        if local_rank == 0:
+            ranks = model.model.lie_chain.effective_ranks()
+            log.info("LieReSpinQuant effective ranks per transition: {}".format(ranks))
+    else:
+        R_dict = {
+            key.replace(".weight", ""): value
+            for key, value in cpu_state.items()
+            if key.endswith("R1.weight")
+            or key.endswith("R2.weight")
+            or key.endswith("R1_final.weight")
+        }
     if local_rank == 0:
         os.makedirs(model_args.output_rotation_path, exist_ok=True)
         path = os.path.join(model_args.output_rotation_path, "R.bin")
