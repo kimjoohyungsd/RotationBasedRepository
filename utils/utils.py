@@ -10,6 +10,8 @@
 
 import logging
 import os
+from pathlib import Path
+
 import random
 from typing import Optional
 # import wandb
@@ -149,6 +151,9 @@ def get_logger(logger_name: Optional[str],outpath:str=None) -> logging.Logger:
 
     # Add the console handler to the logger
     if outpath:
+        log_path = Path(outpath)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        
         logger.addHandler(console_handler)
 
         file_handler = logging.FileHandler(outpath,mode='w')
@@ -191,54 +196,70 @@ def setup_wandb(input_model,args):
     import wandb
     wandb.login()
     
+    model_name = input_model.split("/")[-1]
+
     config = {
-        "model": input_model,
+        "model": model_name,
+        "model_path": input_model,
         "tasks": args.tasks,
         "w_bits": args.w_bits,
         "a_bits": args.a_bits,
         "k_bits": args.k_bits,
+        "v_bits": getattr(args, "v_bits", None),
         "w_groupsize": args.w_groupsize,
         "a_groupsize": args.a_groupsize,
         "k_groupsize": args.k_groupsize,
+        "w_rtn": getattr(args, "w_rtn", None),
+        "w_clip": getattr(args, "w_clip", None),
+        "per_column": getattr(args, "per_column", None),
+        "smooth_quant": bool(getattr(args, "smooth_quant", False)),
+        "rotate": bool(getattr(args, "rotate", False)),
         "batch_size": args.lm_eval_batch_size,
         "seed": args.seed,
     }
-    
+
     # Build tags
     tags = [
         f"W{args.w_bits}",
         f"A{args.a_bits}",
         f"KV{args.k_bits}",
+        model_name,
     ]
-    
+
     # Build group name (같은 설정의 run들을 그룹화)
-    group_name = f"Model {input_model} Tasks: {args.tasks} W{args.w_bits}A{args.a_bits}KV{args.k_bits}W_g_size{args.w_groupsize},A_g_size{args.a_groupsize},KV_g_size{args.k_groupsize}"
-    
-    if args.smooth_quant:
-        config["smooth_quant"] = True
+    group_name = f"{model_name}-W{args.w_bits}A{args.a_bits}KV{args.k_bits}"
+    group_name += f"-Wg{args.w_groupsize}Ag{args.a_groupsize}KVg{args.k_groupsize}"
+
+    if getattr(args, "smooth_quant", False):
         config["smooth_alpha"] = args.alpha
         tags.append("smooth-quant")
         group_name += f"-smooth{args.alpha}"
-    
-    if args.rotate:
-        config["rotation"] = True
-        config["diagonal"] = args.diagonal if hasattr(args, 'diagonal') else False
-        config["diagonal_size"] = args.diagonal_size if args.diagonal else None
-        config["offline"] = args.offline if hasattr(args, 'offline') else False
+
+    if getattr(args, "rotate", False):
+        config["rotate_mode"] = getattr(args, "rotate_mode", None)
+        config["optimized_rotation_path"] = getattr(args, "optimized_rotation_path", None)
+        config["diagonal"] = getattr(args, "diagonal", False)
+        config["diagonal_size"] = args.diagonal_size if getattr(args, "diagonal", False) else None
+        config["offline"] = getattr(args, "offline", False)
         tags.append("rotation")
+        tags.append("spinquant" if getattr(args, "optimized_rotation_path", None) else "hadamard")
         group_name += "-rotate"
-        
-        if args.diagonal:
+
+        if getattr(args, "diagonal", False):
             tags.append(f"diagonal-{args.diagonal_size}")
-            group_name +=f"diagonal-{args.diagonal_size}"
-    
+            group_name += f"-diagonal{args.diagonal_size}"
+    else:
+        tags.append("no-rotation")
+
     # Initialize wandb
     run = wandb.init(
         project=args.wandb_project,
         entity=args.wandb_id,
-        name=group_name
+        name=group_name,
+        group=group_name,
+        tags=tags,
+        config=config,
     )
-    wandb.log(config)
     return run
 
 

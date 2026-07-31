@@ -220,6 +220,20 @@ def parser_gen():
         default=False,
         help="Apply Hadamard rotation in FP32 (default: False)",
     )
+    # Rotation-training checkpointing (optimize_rotation.py). HF Trainer checkpoints
+    # dump the FULL model + optimizer state (tens of GB each) into output_dir, which
+    # can fill a small disk mid-run and waste the whole training. Default False so a
+    # full-disk error cannot happen: the trained rotations are ALWAYS saved separately
+    # to output_rotation_path/R.bin regardless of this flag. Pass --save_checkpoints
+    # only if you actually need mid-training checkpoints (e.g. to resume long runs).
+    parser.add_argument(
+        '--save_checkpoints',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save intermediate HF Trainer checkpoints (full model + optimizer state) during "
+             "rotation training. Default False to protect against out-of-disk failures; R.bin is "
+             "saved separately either way."
+    )
 
     parser.add_argument(
         '--per_column',

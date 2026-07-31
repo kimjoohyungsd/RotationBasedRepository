@@ -205,6 +205,18 @@ def train() -> None:
         optimizer = SGDG(
             trainable_parameters, lr=training_args.learning_rate, stiefel=True)
     model.seqlen = training_args.model_max_length
+
+    # Disk-safety: unless --save_checkpoints is passed, disable HF Trainer checkpointing
+    # so a full-disk error mid-run cannot waste the training. Each Trainer checkpoint
+    # dumps the full model + optimizer state (tens of GB); we don't need them here since
+    # the trained rotations are saved separately to output_rotation_path/R.bin below.
+    if not getattr(ptq_args, "save_checkpoints", False):
+        training_args.save_strategy = "no"
+        if local_rank == 0:
+            log.info("Trainer checkpointing disabled (save_strategy='no'); only R.bin will be written. "
+                     "Pass --save_checkpoints to keep intermediate checkpoints.")
+
+    optimizer = SGDG(trainable_parameters, lr=training_args.learning_rate, stiefel=True)
     MyTrainer = Trainer
     # Use FSDP for 70B rotation training
     if training_args.fsdp != "" and training_args.fsdp != []:

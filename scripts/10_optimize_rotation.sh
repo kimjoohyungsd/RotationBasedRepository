@@ -10,8 +10,8 @@
 torchrun --nnodes=1 --nproc_per_node=4 optimize_rotation.py \
 --input_model $1  \
 --output_rotation_path /home/jhkcool97/Rotation_repository/ReSpinQuant/Matrixes/LLAMA-2-7B/ \
---output_dir "R1644_g_size_32/" \
---logging_dir "R1644_g_size_32_log/" \
+--output_dir "Training/Llama3.1-8B/R1644_g_size_32/" \
+--logging_dir "Training/Llama3.1-8B/R1644_g_size_32_log/" \
 --model_max_length 2048 \
 --fp16 True \
 --bf16 False \
