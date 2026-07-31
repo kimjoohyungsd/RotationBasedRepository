@@ -40,7 +40,12 @@ def train() -> None:
     # ptq_args.eval_out_path = os.path.join(ptq_args.eval_out_path,f"{}")
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
 
-    config = transformers.AutoConfig.from_pretrained( 
+    # Setup wandb (only once, before anything heavy runs so the config is recorded even if eval crashes)
+    wandb_run = utils.setup_wandb(model_args.input_model, ptq_args)
+    if wandb_run is not None:
+        log.info("wandb run: {} ({})".format(wandb_run.name, wandb_run.url))
+
+    config = transformers.AutoConfig.from_pretrained(
         model_args.input_model, token=model_args.access_token
     )
     # Llama v3.2 specific: Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
@@ -170,6 +175,9 @@ def train() -> None:
             dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
             log.info("wiki2 ppl is: {}".format(dataset_ppl))
             results['wiki2_ppl'] = dataset_ppl
+            if wandb_run is not None:
+                wandb_run.log({"wiki2_ppl": dataset_ppl})
+                wandb_run.summary["wiki2_ppl"] = dataset_ppl
 
         if ptq_args.draw:
             if ptq_args.distribution_dir is None:
@@ -213,48 +221,43 @@ def train() -> None:
 
         task_names = ptq_args.tasks
 
-        
+        metric_vals = {}
         for task_name in task_names:
             log.info(f"Evaluating {task_name}...")
-            result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
+            result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size="auto")['results']
             result = result[task_name]
             acc = round(result.get('acc_norm,none', result['acc,none']) * 100, 2)
             results[task_name] = acc
+            metric_vals[task_name] = acc
             log.info(f"acc: {acc}%")
-        metric_vals = {task: result for task, result in results.items()}
-        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
+            # task 하나 끝날 때마다 올려서 중간에 죽어도 결과가 남도록
+            if wandb_run is not None:
+                wandb_run.log({task_name: acc})
+                wandb_run.summary[task_name] = acc
+
+        if metric_vals:
+            metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
+            results['acc_avg'] = metric_vals['acc_avg']
         log.info(metric_vals)
         log.info(results)
-    # if not ptq_args.lm_eval:
-    #     log.info("Skipping LM_eval task")
+        if wandb_run is not None and metric_vals:
+            wandb_run.log({"acc_avg": metric_vals['acc_avg']})
+            wandb_run.summary["acc_avg"] = metric_vals['acc_avg']
+    else:
+        log.info("Skipping LM_eval task")
 
-    # # Setup wandb (only once)
-    
-    # else:
-    #     # Import lm_eval utils
-    #     import lm_eval
-    #     from lm_eval import utils as lm_eval_utils
-    #     from lm_eval.api.registry import ALL_TASKS
-    #     from lm_eval.models.huggingface import HFLM
-    #     wandb_run = utils.setup_wandb(model_args.input_model,ptq_args) if local_rank == 0 else None
-
-    #     model.cuda()
-    #     hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
-
-    #     # task_names = lm_eval_utils.pattern_match(ptq_args.tasks, ALL_TASKS)
-    #     try:
-    #         results = lm_eval.simple_evaluate(hflm, tasks=ptq_args.tasks, batch_size=ptq_args.lm_eval_batch_size)['results']
-
-    #         metric_vals = {task: round(result.get('acc_norm,none', result['acc,none']), 4) for task, result in results.items()}
-    #         metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 4)
-    #         print(metric_vals)
-    #     except Exception as e:
-    #         wandb.log(f"Error during zero-shot evaluation with lm_eval harness: {e}")
-    #     if ptq_args.wandb:
-    #         wandb.log(metric_vals)
-
-    #     if wandb_run:
-    #         wandb_run.finish()
+    if wandb_run is not None:
+        import wandb
+        # runs 테이블에 한 번에 보이도록 최종 결과를 summary로 정리
+        wandb_run.summary.update(results)
+        # 결과 테이블(여러 run 비교용)
+        if results:
+            table = wandb.Table(
+                columns=["metric", "value"],
+                data=[[k, v] for k, v in results.items()],
+            )
+            wandb_run.log({"results": table})
+        wandb_run.finish()
 
 if __name__ == "__main__":
     train()

@@ -35,7 +35,7 @@ torchrun --nnodes=1 --nproc_per_node=6 optimize_rotation.py \
 --respinquant \
 --k_groupsize 128 \
 --v_groupsize 128 \
---fsdp "full_shard auto_wrap" \
+--fsdp "full_shard auto_wrap offload" \
 --fsdp_transformer_layer_cls_to_wrap 'LlamaDecoderLayer' \
 --fsdp_config /home/jhkcool97/RotationBasedRepository/scripts/fsdp_config.json \
 
