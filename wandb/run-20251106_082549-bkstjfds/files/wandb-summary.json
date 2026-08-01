@@ -1,1 +1,0 @@
-{"_wandb":{"runtime":26236},"_timestamp":1.762443787075084e+09,"quantization_group_size":"W: 128, A: 128","piqa":0.7644,"_runtime":26236,"LM-eval tasks":["piqa"],"quantization_bits":"W: 4, A: 4, KV: 16","_step":3,"acc_avg":0.7644}
