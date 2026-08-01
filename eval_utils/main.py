@@ -178,7 +178,13 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
                     custom_layers=[model.model.embed_tokens, model.lm_head],
                 )
             # quantize other layers with gptq
-            quantizers = gptq_utils.gptq_fwrd(model, trainloader, "cuda", args)
+            if getattr(args, "gptq_cpu_offload", False):
+                # 70B-scale path: model is CPU-resident, one layer streamed to GPU at a
+                # time. Requires the model NOT to be on device_map/cuda (see ptq.py).
+                log.info("GPTQ: CPU-offload / multi-GPU per-layer streaming")
+                quantizers = gptq_utils.gptq_fwrd_distribute(model, trainloader, args)
+            else:
+                quantizers = gptq_utils.gptq_fwrd(model, trainloader, "cuda", args)
             save_dict["w_quantizers"] = quantizers
         else:  # RTN Weight Quantization
             quantizers = gptq_utils.rtn_fwrd(model, "cuda", args)

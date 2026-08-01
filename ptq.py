@@ -25,7 +25,7 @@ from eval_utils.main import ptq_model
 from eval_utils.modeling_llama import LlamaForCausalLM
 from eval_utils.modeling_qwen2 import Qwen2ForCausalLM # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
 
-from utils import data_utils, eval_utils, utils, draw_utils
+from utils import data_utils, eval_utils, utils, draw_utils, parallel_utils
 from utils.process_args import process_args_ptq
 
 from datasets import load_dataset
@@ -89,7 +89,8 @@ def train() -> None:
             config=config,
             torch_dtype=dtype,
             token=model_args.access_token,
-            device_map=device_map
+            device_map=device_map,
+            max_memory=max_memory
         )
     # elif 'Qwen3' in model_args.net:
     #     model = Qwen3ForCausalLM.from_pretrained(
@@ -103,8 +104,13 @@ def train() -> None:
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
 
-    if not ptq_args.distribute:
+    # --gptq_cpu_offload keeps the model on CPU: gptq_fwrd_distribute streams one layer
+    # at a time to a GPU, so the full 70B model must NOT be pinned to a single GPU here.
+    if not ptq_args.distribute and not getattr(ptq_args, "gptq_cpu_offload", False):
         model.cuda() # 모델을 GPU로 옮긴다
+    elif getattr(ptq_args, "gptq_cpu_offload", False):
+        assert not ptq_args.distribute, "--gptq_cpu_offload is incompatible with --distribute (device_map)."
+        log.info("gptq_cpu_offload: model kept on CPU; layers streamed to GPU during GPTQ.")
 
     if (ptq_args.rotate):
         log.info("Rotation applied")
@@ -159,7 +165,8 @@ def train() -> None:
     model = ptq_model(ptq_args, model, log, tokenizer, model_args) # 
     model.seqlen = training_args.model_max_length
 
-    
+    # if ptq_args.distribute and not ptq_args.w_rtn:
+
     
     results = {}
     if ptq_args.wikitext2 or ptq_args.draw:

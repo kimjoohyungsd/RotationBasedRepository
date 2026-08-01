@@ -181,14 +181,43 @@ def gptq_fwrd(model, dataloader, dev, args):
     model.config.use_cache = False
     layers = model.model.layers
 
-    model.model.embed_tokens = model.model.embed_tokens.to(dev)
-    model.model.norm = model.model.norm.to(dev)
-    layers[0] = layers[0].to(dev)
+    # --distribute (device_map="auto") dispatches the model with accelerate: every
+    # submodule carries an AlignDevicesHook that re-sends the *inputs* to the device the
+    # module was assigned to. Moving a layer by hand (`layers[i].to(dev)`) therefore
+    # desynchronizes weights (moved) from the hook's execution_device (unchanged) and
+    # blows up with "found at least two devices, cuda:0 and cuda:1". In dispatched mode
+    # we move NOTHING: each layer is quantized in place, on whatever device accelerate
+    # gave it, and only the calibration tensors travel.
+    device_map = getattr(model, "hf_device_map", None) or {}
+    dispatched = len(device_map) > 0
+    if dispatched:
+        offloaded = sorted(
+            k for k, v in device_map.items() if str(v) in ("cpu", "disk", "meta")
+        )
+        assert not offloaded, (
+            "GPTQ cannot quantize accelerate-offloaded modules: their weights are "
+            "streamed from a read-only weights_map, so in-place GPTQ updates would be "
+            "silently discarded. Offloaded modules: {}...  Either raise --max_memory "
+            "so the whole model fits on the GPUs, or drop --distribute and use "
+            "--gptq_cpu_offload (gptq_fwrd_distribute).".format(offloaded[:5])
+        )
+        dev = model.model.embed_tokens.weight.device
+        logging.info(
+            "GPTQ: accelerate-dispatched model detected ({} devices); "
+            "quantizing each layer in place.".format(len(set(map(str, device_map.values()))))
+        )
+    else:
+        model.model.embed_tokens = model.model.embed_tokens.to(dev)
+        model.model.norm = model.model.norm.to(dev)
+        layers[0] = layers[0].to(dev)
 
     dtype = next(iter(model.parameters())).dtype # embedding layer의 Data type을 보고 model의 Dtype을 구한다
+    # Dispatched: keep the calibration buffers on CPU (they would otherwise pin
+    # nsamples*2048*hidden on cuda:0, the very GPU accelerate already filled).
+    buf_device = "cpu" if dispatched else dev
     inps = torch.zeros(
-        (args.nsamples, 2048, model.config.hidden_size), dtype=dtype, device=dev
-    ) #
+        (args.nsamples, 2048, model.config.hidden_size), dtype=dtype, device=buf_device
+    )
 
     
     cache = {"i": 0, "attention_mask": None}
@@ -214,14 +243,21 @@ def gptq_fwrd(model, dataloader, dev, args):
             # 이 과정을 통하여 모든 128개의 Sample에 1) layer에 inp  2) "attention_mask" 3) Position_ids를 가지고 온다
     layers[0] = layers[0].module
 
-    layers[0] = layers[0].cpu()
-    model.model.embed_tokens = model.model.embed_tokens.cpu()
-    model.model.norm = model.model.norm.cpu()
+    if not dispatched:
+        layers[0] = layers[0].cpu()
+        model.model.embed_tokens = model.model.embed_tokens.cpu()
+        model.model.norm = model.model.norm.cpu()
     torch.cuda.empty_cache()
 
-    outs = torch.zeros_like(inps) 
+    outs = torch.zeros_like(inps)
     attention_mask = cache["attention_mask"] #
     position_ids = cache["position_ids"] #
+    if dispatched:
+        # Re-homed to each layer's own device inside the loop below.
+        if attention_mask is not None:
+            attention_mask = attention_mask.cpu()
+        if position_ids is not None:
+            position_ids = position_ids.cpu()
 
     quantizers = {}
     sequential = [
@@ -235,8 +271,20 @@ def gptq_fwrd(model, dataloader, dev, args):
         ["mlp.down_proj.module"],
     ]
     for i in range(len(layers)):
-        print(f"\nLayer {i}:", flush=True, end=" ")
-        layer = layers[i].to(dev)
+        if dispatched:
+            # Quantize where accelerate put it; only the activations travel.
+            layer = layers[i]
+            layer_dev = next(layer.parameters()).device
+            print(f"\nLayer {i} @ {layer_dev}:", flush=True, end=" ")
+        else:
+            layer_dev = torch.device(dev)
+            layer = layers[i].to(layer_dev)
+            print(f"\nLayer {i}:", flush=True, end=" ")
+        # ReSpinQuant's T/Q/M tensors are plain attributes, not params/buffers, so they
+        # do not follow the layer's device -- align them explicitly.
+        _move_respin_attrs(layer, layer_dev)
+        amask = attention_mask.to(layer_dev) if attention_mask is not None else None
+        pids = position_ids.to(layer_dev) if position_ids is not None else None
         full = quant_utils.find_qlayers(layer, layers=[torch.nn.Linear])
         for names in sequential:
             subset = {n: full[n] for n in names}
@@ -271,9 +319,9 @@ def gptq_fwrd(model, dataloader, dev, args):
                 handles.append(subset[name].register_forward_hook(add_batch(name)))
             for j in range(args.nsamples):
                 outs[j] = layer(
-                    inps[j].unsqueeze(0),
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
+                    inps[j].unsqueeze(0).to(layer_dev),
+                    attention_mask=amask,
+                    position_ids=pids,
                 )[0]
             for h in handles:
                 h.remove()
@@ -292,17 +340,236 @@ def gptq_fwrd(model, dataloader, dev, args):
 
         for j in range(args.nsamples):
             outs[j] = layer(
-                inps[j].unsqueeze(0),
-                attention_mask=attention_mask,
-                position_ids=position_ids,
+                inps[j].unsqueeze(0).to(layer_dev),
+                attention_mask=amask,
+                position_ids=pids,
             )[0]
 
-        layers[i] = layer.cpu()
+        if not dispatched:
+            layers[i] = layer.cpu()
         del layer
         del gptq
+        del amask, pids
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
+
+    model.config.use_cache = use_cache
+    utils.cleanup_memory(verbos=True)
+    logging.info("-----GPTQ Quantization Done-----\n")
+    return quantizers
+
+
+# ReSpinQuant installs the residual-correction tensors as PLAIN attributes on each
+# decoder layer (layer.T_attn / .Q_attn / .M_attn / .T_ffn / .Q_ffn / .M_ffn). They are
+# not nn.Parameters or registered buffers, so `layer.to(dev)` does NOT move them. They
+# must be moved by hand whenever the layer changes device, or the layer forward will hit
+# a cross-device error inside the residual add.
+_RESPIN_ATTRS = ("T_attn", "M_attn", "Q_attn", "T_ffn", "M_ffn", "Q_ffn")
+
+
+def _move_respin_attrs(module, dev):
+    for name in _RESPIN_ATTRS:
+        t = getattr(module, name, None)
+        if torch.is_tensor(t):
+            setattr(module, name, t.to(dev))
+
+
+def _resolve_devices(devices):
+    """Normalize a devices spec into a list of torch.device('cuda:i')."""
+    if devices is None:
+        devices = list(range(torch.cuda.device_count()))
+    out = []
+    for d in devices:
+        out.append(d if isinstance(d, torch.device) else torch.device(f"cuda:{d}"))
+    assert len(out) > 0, "No CUDA devices available for distributed GPTQ."
+    return out
+
+
+def _least_occupied(devices):
+    """Pick the device with the most free VRAM right now (adapts to other processes)."""
+    if len(devices) == 1:
+        return devices[0]
+    best, best_free = devices[0], -1
+    for d in devices:
+        free, _ = torch.cuda.mem_get_info(d)
+        if free > best_free:
+            best, best_free = d, free
+    return best
+
+
+@torch.no_grad()
+def gptq_fwrd_distribute(model, dataloader, args, devices=None):
+    """Memory-frugal GPTQ for models too large to co-reside with the calibration
+    buffers on one GPU (e.g. Llama-2/3 70B).
+
+    GPTQ is inherently SEQUENTIAL across layers -- layer i+1's calibration inputs are
+    layer i's already-quantized outputs -- so layers cannot be spread across GPUs and
+    run in parallel. What we distribute here is MEMORY, not compute:
+
+      * the whole model stays on CPU;
+      * the (large) inps/outs calibration buffers stay on CPU;
+      * exactly ONE decoder layer at a time is streamed onto a GPU -- the least-occupied
+        of `devices` -- quantized there, then moved back to CPU.
+
+    Peak VRAM per step = one layer's weights + that layer's GPTQ Hessian (the down_proj
+    Hessian dominates: intermediate^2 * 4 bytes) + one calibration sample. A single 70B
+    layer therefore fits comfortably on one 24 GB card, and passing several devices lets
+    consecutive layers land on whichever GPU is free (useful when the box is shared).
+
+    Unlike accelerate's device_map="auto", there are NO AlignDevicesHooks, so this does
+    not fight GPTQ's per-layer `.to(dev)` (the cause of the cuda:0/cuda:1 error).
+
+    Requires the model to be loaded on CPU (device_map=None and no model.cuda()).
+    """
+    logging.info("-----GPTQ Quantization (CPU-offload / multi-GPU)-----")
+    devices = _resolve_devices(devices)
+    stage = devices[0]  # device used for the light-weight input-capture forward
+
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+    layers = model.model.layers
+
+    # --- input capture: only the pre-layer modules + layer 0 need to be on `stage`.
+    #     LlamaModel.forward computes model-level rotary embeddings before the layer
+    #     loop, so model.model.rotary_emb must sit on `stage` too. ---
+    model.model.embed_tokens = model.model.embed_tokens.to(stage)
+    if hasattr(model.model, "rotary_emb") and model.model.rotary_emb is not None:
+        model.model.rotary_emb = model.model.rotary_emb.to(stage)
+    layers[0] = layers[0].to(stage)
+    _move_respin_attrs(layers[0], stage)
+
+    dtype = next(iter(model.parameters())).dtype
+    nsamples = args.nsamples
+    seqlen = 2048
+    hidden = model.config.hidden_size
+    # Calibration buffers live on CPU (4 GB each at 70B; the box has plenty of RAM).
+    inps = torch.zeros((nsamples, seqlen, hidden), dtype=dtype, device="cpu")
+    cache = {"i": 0, "attention_mask": None, "position_ids": None}
+
+    class Catcher(nn.Module):
+        def __init__(self, module):
+            super().__init__()
+            self.module = module
+
+        def forward(self, inp, **kwargs):
+            inps[cache["i"]] = inp.squeeze(0).to("cpu")
+            cache["i"] += 1
+            cache["attention_mask"] = kwargs["attention_mask"]
+            cache["position_ids"] = kwargs["position_ids"]
+            raise ValueError
+
+    layers[0] = Catcher(layers[0])
+    for batch in dataloader:
+        try:
+            model(batch[0].to(stage))
+        except ValueError:
+            pass
+    layers[0] = layers[0].module
+
+    # Everything back to CPU; keep only per-layer working set on GPU from here on.
+    layers[0] = layers[0].cpu()
+    _move_respin_attrs(layers[0], "cpu")
+    model.model.embed_tokens = model.model.embed_tokens.cpu()
+    if hasattr(model.model, "rotary_emb") and model.model.rotary_emb is not None:
+        model.model.rotary_emb = model.model.rotary_emb.cpu()
+    torch.cuda.empty_cache()
+
+    outs = torch.zeros_like(inps)  # CPU
+    # Keep the captured masks on CPU; they are re-homed to each layer's device per step.
+    attention_mask = cache["attention_mask"]
+    position_ids = cache["position_ids"]
+    if attention_mask is not None:
+        attention_mask = attention_mask.cpu()
+    if position_ids is not None:
+        position_ids = position_ids.cpu()
+
+    quantizers = {}
+    sequential = [
+        [
+            "self_attn.k_proj.module",
+            "self_attn.v_proj.module",
+            "self_attn.q_proj.module",
+        ],
+        ["self_attn.o_proj.module"],
+        ["mlp.up_proj.module", "mlp.gate_proj.module"],
+        ["mlp.down_proj.module"],
+    ]
+
+    for i in range(len(layers)):
+        dev = _least_occupied(devices)
+        print(f"\nLayer {i} -> {dev}:", flush=True, end=" ")
+        layer = layers[i].to(dev)
+        _move_respin_attrs(layer, dev)
+        amask = attention_mask.to(dev) if attention_mask is not None else None
+        pids = position_ids.to(dev) if position_ids is not None else None
+
+        full = quant_utils.find_qlayers(layer, layers=[torch.nn.Linear])
+        for names in sequential:
+            subset = {n: full[n] for n in names}
+
+            gptq = {}
+            for name in subset:
+                if "lm_head" in name:
+                    continue
+                print(f"{name}", end="  ", flush=True)
+                layer_weight_bits = args.w_bits
+                if args.int8_down_proj and "down_proj" in name:
+                    layer_weight_bits = 8
+                gptq[name] = GPTQ(subset[name])
+                gptq[name].quantizer = quant_utils.WeightQuantizer()
+                gptq[name].quantizer.configure(
+                    layer_weight_bits,
+                    perchannel=True,
+                    sym=not (args.w_asym),
+                    mse=args.w_clip,
+                )
+
+            def add_batch(name):
+                def tmp(_, inp, out):
+                    gptq[name].add_batch(inp[0].data, out.data)  # noqa: F821
+
+                return tmp
+
+            handles = [subset[n].register_forward_hook(add_batch(n)) for n in subset]
+            # Stream calibration samples one at a time: only a single [1, seq, hidden]
+            # activation is on the GPU at any moment.
+            for j in range(nsamples):
+                layer(
+                    inps[j].unsqueeze(0).to(dev),
+                    attention_mask=amask,
+                    position_ids=pids,
+                )
+            for h in handles:
+                h.remove()
+
+            for name in subset:
+                gptq[name].fasterquant(
+                    percdamp=args.percdamp,
+                    groupsize=args.w_groupsize,
+                    actorder=args.act_order,
+                    static_groups=False,
+                    export_to_et=args.export_to_et,
+                )
+                quantizers["model.layers.%d.%s" % (i, name)] = gptq[name].quantizer
+                gptq[name].free()
+
+        # Recompute this layer's outputs with the now-quantized weights -> store on CPU.
+        for j in range(nsamples):
+            out = layer(
+                inps[j].unsqueeze(0).to(dev),
+                attention_mask=amask,
+                position_ids=pids,
+            )[0]
+            outs[j] = out.squeeze(0).to("cpu")
+
+        layers[i] = layer.cpu()
+        _move_respin_attrs(layers[i], "cpu")
+        del layer, gptq, amask, pids
+        torch.cuda.empty_cache()
+        utils.cleanup_memory(verbos=False)
+
+        inps, outs = outs, inps  # this layer's outputs are the next layer's inputs
 
     model.config.use_cache = use_cache
     utils.cleanup_memory(verbos=True)

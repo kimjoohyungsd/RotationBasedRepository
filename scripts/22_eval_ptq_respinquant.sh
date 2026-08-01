@@ -27,7 +27,7 @@ CUDA_VISIBLE_DEVICES=0,1 python ptq.py \
 --rotate \
 --respinquant \
 --residual_rank 32 \
---optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/W:16A:4KV:4/R.bin" \
+--optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/ReSpinQuant/W:16A:4KV:4/R.bin" \
 --wikitext2 \
 --eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-3.1-8b/ReSpinQuant/w4a4kv4.txt" \
 --distribute \

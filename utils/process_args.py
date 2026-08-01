@@ -234,6 +234,15 @@ def parser_gen():
              "rotation training. Default False to protect against out-of-disk failures; R.bin is "
              "saved separately either way."
     )
+    parser.add_argument(
+        '--gptq_cpu_offload',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use the CPU-offload / per-layer-streaming GPTQ path (gptq_fwrd_distribute) for "
+             "models too large to co-reside with calibration buffers on one GPU (e.g. 70B). "
+             "Model is kept on CPU and one decoder layer at a time is streamed to the least-"
+             "occupied GPU. Mutually exclusive with --distribute (do NOT use device_map here)."
+    )
 
     parser.add_argument(
         '--per_column',

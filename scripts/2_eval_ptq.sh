@@ -52,7 +52,8 @@ python  ptq.py \
 --a_asym \
 --k_groupsize 128 \
 --v_groupsize 128 \
---wikitext2
+--wikitext2 \
+--distribute \
 # --rotate \
 # --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
 # --wikitext2 \

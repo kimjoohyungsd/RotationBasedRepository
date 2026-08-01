@@ -9,7 +9,7 @@
 # nproc_per_node indicates the number of GPUs per node to employ.
 torchrun --nnodes=1 --nproc_per_node=6 optimize_rotation.py \
 --input_model $1  \
---output_rotation_path /home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/W:16A:4KV:4  \
+--output_rotation_path /home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/LieReSpinQuant/W:16A:4KV:4  \
 --output_dir "Training/Llama3.1-8B/R1644_g_size_32/" \
 --logging_dir "Training/Llama3.1-8B/R1644_g_size_32_log/" \
 --model_max_length 2048 \
@@ -32,7 +32,7 @@ torchrun --nnodes=1 --nproc_per_node=6 optimize_rotation.py \
 --a_asym \
 --k_asym \
 --v_asym \
---respinquant \
+--lierespinquant \
 --k_groupsize 128 \
 --v_groupsize 128 \
 --fsdp "full_shard auto_wrap offload" \
