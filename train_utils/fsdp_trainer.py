@@ -563,18 +563,34 @@ class FSDPTrainer(Trainer):
         # Do not wrap (shard) rotation matrices: keep them full on every rank so the
         # Cayley/Stiefel optimizer sees whole DxD matrices and cross-layer access
         # (layers[i+1].R1, R1_final) stays valid under FSDP.
-        if getattr(model.config, "respinquant", False):
+        # NOTE: config.respinquant is also True in LieReSpinQuant mode (the modeling
+        # forward uses it to pick the residual-rotation path), so check lierespinquant
+        # first -- LieRe never builds layer.R1 / layer.R2 / R1_final, they stay None.
+        if getattr(model.config, "lierespinquant", False):
+            ignored_modules = [model.model.lie_chain]  # base + per-transition U/V/gamma
+            for layer in model.model.layers:
+                ignored_modules.append(layer.self_attn.R2)  # head rotation (R3)
+        elif getattr(model.config, "respinquant", False):
             ignored_modules = []
             for layer in model.model.layers:
                 ignored_modules.append(layer.R1)          # ReSpinQuant residual R1
                 ignored_modules.append(layer.R2)          # ReSpinQuant residual R2
                 ignored_modules.append(layer.self_attn.R2)  # head rotation (R3)
             ignored_modules.append(model.model.R1_final)  # final basis
-            self.accelerator.state.fsdp_plugin.ignored_modules = ignored_modules
         else:
-            self.accelerator.state.fsdp_plugin.ignored_modules = [model.R1] + [
+            ignored_modules = [model.R1] + [
                 layer.self_attn.R2 for layer in model.model.layers
             ]
+        # Fail loudly instead of letting a None (unbuilt rotation) reach FSDP, where it
+        # surfaces as an opaque "ignored_modules expects nn.Module list elements" error.
+        missing = [i for i, m in enumerate(ignored_modules) if not isinstance(m, nn.Module)]
+        if missing:
+            raise ValueError(
+                f"ignored_modules contains {len(missing)} non-module entries at indices "
+                f"{missing[:8]}{'...' if len(missing) > 8 else ''}; the rotation modules for "
+                "this mode were not built. Check the respinquant/lierespinquant flags."
+            )
+        self.accelerator.state.fsdp_plugin.ignored_modules = ignored_modules
         # use_orig_params because part of the model is freezed
         self.accelerator.state.fsdp_plugin.use_orig_params = True
 
