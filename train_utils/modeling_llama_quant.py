@@ -1528,6 +1528,16 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             return_dict if return_dict is not None else self.config.use_return_dict
         )
 
+        # Only plain SpinQuant owns a single global R1; ReSpinQuant reads its per-layer
+        # rotations internally and LieReSpinQuant rebuilds every basis from the Lie chain.
+        # Test the Lie chain too, so a mis-set config flag can't send LieRe down the
+        # SpinQuant path and fault on a `self.R1` that mode never builds.
+        use_global_r1 = (
+            not getattr(self.config, "respinquant", False)
+            and not getattr(self.config, "lierespinquant", False)
+            and self.model.lie_chain is None
+        )
+
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         outputs = self.model(
             input_ids=input_ids,
@@ -1540,9 +1550,9 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             cache_position=cache_position,
-            # SpinQuant threads the global R1 through the model; ReSpinQuant reads
-            # per-layer rotations internally (pass None).
-            R1=None if getattr(self.config, "respinquant", False) else self.R1.weight,
+            # SpinQuant threads the global R1 through the model; ReSpinQuant and
+            # LieReSpinQuant read their rotations internally (pass None).
+            R1=self.R1.weight if use_global_r1 else None,
         )
 
         hidden_states = outputs[0]
@@ -1550,7 +1560,7 @@ class LlamaForCausalLM(LlamaPreTrainedModel):
         if self.model.lie_chain is not None:
             # LieReSpinQuant: un-rotate from the last basis of the Lie chain.
             R1_last = self.model._lie_last_basis
-        elif getattr(self.config, "respinquant", False):
+        elif not use_global_r1:
             # ReSpinQuant: un-rotate from the last FFN-output basis (R1_final).
             R1_last = self.model.R1_final.weight
         else:

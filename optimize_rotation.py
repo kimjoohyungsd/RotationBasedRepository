@@ -80,7 +80,12 @@ def train() -> None:
 
     # Propagate the training mode to the (shared) config so the modeling forward
     # can pick the SpinQuant vs. ReSpinQuant path at runtime.
-    model.config.respinquant = training_args.respinquant or training_args.lierespinquant
+    # `respinquant` means "residual-stream rotation family" (ReSpin *or* LieRe): it is
+    # what the modeling forward tests to know there is no single global R1. LieRe-specific
+    # branches are guarded by `lie_chain is not None`, so they still take precedence.
+    # Do NOT narrow this to `training_args.respinquant` -- LieRe would then fall into the
+    # SpinQuant path and hit `self.R1`, which that mode never builds.
+    model.config.respinquant = training_args.respinquant
     model.config.lierespinquant = training_args.lierespinquant
     model.config.lie_gate_l1 = training_args.lie_gate_l1
 
