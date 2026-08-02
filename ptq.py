@@ -224,14 +224,14 @@ def train() -> None:
 
         if not ptq_args.distribute:
             model.cuda() # 모델을 GPU로 옮긴다
-        hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
+        hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size="auto",max_batch_size=ptq_args.lm_eval_batch_size)
 
         task_names = ptq_args.tasks
 
         metric_vals = {}
         for task_name in task_names:
             log.info(f"Evaluating {task_name}...")
-            result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size="auto")['results']
+            result = lm_eval.simple_evaluate(hflm, tasks=[task_name])['results']
             result = result[task_name]
             acc = round(result.get('acc_norm,none', result['acc,none']) * 100, 2)
             results[task_name] = acc
