@@ -242,7 +242,12 @@ def setup_wandb(input_model,args):
         config["diagonal_size"] = args.diagonal_size if getattr(args, "diagonal", False) else None
         config["offline"] = getattr(args, "offline", False)
         tags.append("rotation")
-        tags.append("spinquant" if getattr(args, "optimized_rotation_path", None) else "hadamard")
+        if getattr(args,'respinquant',False):
+            tags.append('respinquant')
+        elif getattr(args,'lierespinquant',False):
+            tags.append('lierespinquant')
+        else:
+            tags.append("spinquant" if getattr(args, "optimized_rotation_path", None) else "hadamard")
         group_name += "-rotate"
 
         if getattr(args, "diagonal", False):

@@ -22,21 +22,22 @@ CUDA_VISIBLE_DEVICES=0,1 python ptq.py \
 --k_asym \
 --v_asym \
 --a_asym \
---k_groupsize 128 \
---v_groupsize 128 \
+--wikitext2 \
 --rotate \
 --respinquant \
 --residual_rank 32 \
 --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/ReSpinQuant/W:16A:4KV:4/R.bin" \
---wikitext2 \
+--deactivate_residual \
+--k_groupsize 128 \
+--v_groupsize 128 \
 --eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-3.1-8b/ReSpinQuant/w4a4kv4.txt" \
 --distribute \
 --lm_eval \
---lm_eval_batch_size 4 \
+--lm_eval_batch_size 128 \
 --wandb \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \
-# --deactivate_residual \
+
 # --distribute
 # add --lm_eval --tasks "piqa,arc_easy,..." for zero-shot accuracy
 #
