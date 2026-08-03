@@ -69,6 +69,15 @@ class TrainingArguments(transformers.TrainingArguments):
                           "transition settle on its own effective rank instead of a "
                           "uniform r (addresses ReSpinQuant's fixed-rank-per-layer)."},
     )
+    lie_learning_rate: float = field(
+        default=1e-3,
+        metadata={
+            "help": "Learning rate for the Cayley factors U/V/gamma. These are ordinary "
+                    "Euclidean parameters (orthogonality comes from the parameterization, "
+                    "not the optimizer), so they must NOT use the large Stiefel/Cayley-SGD "
+                    "step size that --learning_rate carries for R3 (typically ~15)."
+        },
+    )
     lie_gate_init: float = field(
         default=1e-2,
         metadata={"help": "Std of the initial gates. Near-identity start, so training "

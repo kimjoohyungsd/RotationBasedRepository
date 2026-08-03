@@ -186,14 +186,26 @@ def train() -> None:
             model.model.layers[i].self_attn.R2.weight for i in range(num_layers)
         ]
         trainable_parameters = lie_params + head_params
+        # The two groups need very different step sizes: R3 rides the Stiefel
+        # manifold with Cayley-SGD (lr ~15), while U/V/gamma are plain Euclidean
+        # parameters initialised at scale 1/sqrt(D) and would diverge instantly
+        # at that lr.
         optimizer = SGDG(
             [
-                {"params": lie_params, "stiefel": False},
-                {"params": head_params, "stiefel": True},
+                {"params": lie_params, "stiefel": False,
+                 "lr": training_args.lie_learning_rate},
+                {"params": head_params, "stiefel": True,
+                 "lr": training_args.learning_rate},
             ],
             lr=training_args.learning_rate,
             stiefel=True,
         )
+        if local_rank == 0:
+            log.info(
+                "LieReSpinQuant optimizer: lr={} (Cayley factors, Euclidean) / "
+                "lr={} (R3, Stiefel)".format(
+                    training_args.lie_learning_rate, training_args.learning_rate)
+            )
     else:
         if training_args.respinquant:
             trainable_parameters = []
