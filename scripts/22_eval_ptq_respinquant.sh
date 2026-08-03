@@ -5,7 +5,7 @@
 #
 # Fuses per-layer R1/R2 into weights offline and applies the rank-r residual
 # subspace correction. Requires --rotate + --respinquant + the trained R.bin.
-CUDA_VISIBLE_DEVICES=2,3 python ptq.py \
+CUDA_VISIBLE_DEVICES=0,1 python ptq.py \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -27,7 +27,6 @@ CUDA_VISIBLE_DEVICES=2,3 python ptq.py \
 --respinquant \
 --residual_rank 32 \
 --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-3-8B/ReSpinQuant/W:16A:4KV:4/R.bin" \
---deactivate_residual \
 --k_groupsize 128 \
 --v_groupsize 128 \
 --eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-3.1-8b/ReSpinQuant/w4a4kv4.txt" \
@@ -36,6 +35,7 @@ CUDA_VISIBLE_DEVICES=2,3 python ptq.py \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \
 
+# --deactivate_residual \
 # --lm_eval \
 # --lm_eval_batch_size 256 \
 # --distribute
