@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES=0,1 python ptq.py \
 --eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-3.1-8b/ReSpinQuant/w4a4kv4.txt" \
 --distribute \
 --lm_eval \
---lm_eval_batch_size 128 \
+--lm_eval_batch_size 256 \
 --wandb \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \

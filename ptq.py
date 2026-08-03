@@ -230,6 +230,7 @@ def train() -> None:
 
         metric_vals = {}
         for task_name in task_names:
+            hflm.batch_sizes = {}   # 캐시 리셋
             log.info(f"Evaluating {task_name}...")
             result = lm_eval.simple_evaluate(hflm, tasks=[task_name])['results']
             result = result[task_name]
