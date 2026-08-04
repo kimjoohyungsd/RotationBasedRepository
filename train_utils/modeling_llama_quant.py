@@ -840,7 +840,19 @@ class LlamaDecoderLayer(nn.Module):
         ] = None,  # will become mandatory in v4.46
         R1=None,
         R1_out=None,
-        lie_ctx=None,
+        # LieReSpinQuant: passed as SEPARATE tensor arguments on purpose.
+        # torch.utils.checkpoint only scans top-level Tensor args for
+        # requires_grad; anything nested in a tuple is invisible to it, and the
+        # whole checkpointed block then runs with grad tracking disabled
+        # ("None of the inputs have requires_grad=True. Gradients will be None"),
+        # which silently starves self_attn.R2 of gradient.
+        lie_R1_in=None,
+        lie_R2_mid=None,
+        lie_R1_next=None,
+        lie_P_attn=None,
+        lie_Z_attn=None,
+        lie_P_ffn=None,
+        lie_Z_ffn=None,
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
@@ -867,13 +879,14 @@ class LlamaDecoderLayer(nn.Module):
                 Arbitrary kwargs to be ignored, used for FSDP and other methods that injects code
                 into the model
         """
-        if lie_ctx is not None:
+        if lie_R1_in is not None:
             # ---------- LieReSpinQuant: per-layer bases from a Lie chain ----------
             # The bases come from B_{k+1} = B_k @ dR_k, so the residual transition is
             # dR_k itself and is available in its low-rank factored form (P, Z) with
             # dR = I + P Z P^T.  We therefore never form R_in^T R_out (a D x D matmul
             # per skip); the skip costs O(D r) instead of O(D^2).
-            R1_in, R2_mid, R1_next, (P_attn, Z_attn), (P_ffn, Z_ffn) = lie_ctx
+            R1_in, R2_mid, R1_next = lie_R1_in, lie_R2_mid, lie_R1_next
+            P_attn, Z_attn, P_ffn, Z_ffn = lie_P_attn, lie_Z_attn, lie_P_ffn, lie_Z_ffn
 
             residual = hidden_states  # in R1_in basis
             hidden_states = self.input_layernorm(hidden_states)
@@ -1272,15 +1285,19 @@ class LlamaModel(LlamaPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            lie_ctx = None
+            lie_args = (None,) * 7
             if lie_bases is not None:
-                # boundaries 2i / 2i+1 / 2i+2 and the two transitions between them
-                lie_ctx = (
+                # boundaries 2i / 2i+1 / 2i+2 and the two transitions between them.
+                # Kept flat (not a tuple-of-tuples) so torch.utils.checkpoint sees
+                # tensors that require grad -- see the decoder layer signature.
+                (P_attn, Z_attn) = lie_factors[2 * idx]
+                (P_ffn, Z_ffn) = lie_factors[2 * idx + 1]
+                lie_args = (
                     lie_bases[2 * idx],       # R1_in
                     lie_bases[2 * idx + 1],   # R2_mid
                     lie_bases[2 * idx + 2],   # R1_next
-                    lie_factors[2 * idx],     # (P, Z) for the attention skip
-                    lie_factors[2 * idx + 1],  # (P, Z) for the FFN skip
+                    P_attn, Z_attn,           # attention skip transition
+                    P_ffn, Z_ffn,             # FFN skip transition
                 )
                 layer_R1 = None
                 R1_next = None
@@ -1312,7 +1329,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     position_embeddings,
                     layer_R1,
                     R1_next,
-                    lie_ctx,
+                    *lie_args,
                 )
             else:
                 layer_outputs = decoder_layer(
@@ -1326,7 +1343,13 @@ class LlamaModel(LlamaPreTrainedModel):
                     position_embeddings=position_embeddings,
                     R1=layer_R1,
                     R1_out=R1_next,
-                    lie_ctx=lie_ctx,
+                    lie_R1_in=lie_args[0],
+                    lie_R2_mid=lie_args[1],
+                    lie_R1_next=lie_args[2],
+                    lie_P_attn=lie_args[3],
+                    lie_Z_attn=lie_args[4],
+                    lie_P_ffn=lie_args[5],
+                    lie_Z_ffn=lie_args[6],
                 )
 
             hidden_states = layer_outputs[0]

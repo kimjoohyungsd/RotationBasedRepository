@@ -43,7 +43,7 @@ R3_LR=${R3_LR:-15}
 MODEL_TAG=$(basename "$MODEL")
 OUT_ROT=${OUT_ROT:-/home/jhkcool97/Rotation_repository/Matrixes/${MODEL_TAG}/LieReSpinQuant/W:${W_BITS}A:${A_BITS}KV:${KV_BITS}}
 RUN_TAG=${RUN_TAG:-Training/${MODEL_TAG}/LieReSpinQuant_r${LIE_RANK}_w${W_BITS}a${A_BITS}kv${KV_BITS}}
-NPROC=${NPROC:-8}
+# NPROC=${NPROC:-8}
 
 echo "=== LieReSpinQuant rotation training ==="
 echo "  model     : ${MODEL}"
@@ -52,9 +52,9 @@ echo "  lie rank  : ${LIE_RANK}  (generator rank <= $((2 * LIE_RANK)))"
 echo "  lie lr    : ${LIE_LR}   (Euclidean)      R3 lr: ${R3_LR} (Stiefel)"
 echo "  gate L1   : ${LIE_GATE_L1}   gate init: ${LIE_GATE_INIT}"
 echo "  rotations : ${OUT_ROT}/R.bin"
-echo "  gpus      : ${NPROC}"
+# echo "  gpus      : ${NPROC}"
 
-torchrun --nnodes=1 --nproc_per_node="${NPROC}" optimize_rotation.py \
+torchrun --nnodes=1 --nproc_per_node=6 optimize_rotation.py \
 --input_model "$MODEL" \
 --output_rotation_path "$OUT_ROT" \
 --output_dir "${RUN_TAG}/" \
@@ -85,7 +85,10 @@ torchrun --nnodes=1 --nproc_per_node="${NPROC}" optimize_rotation.py \
 --lie_gate_l1 "$LIE_GATE_L1" \
 --lie_gate_init "$LIE_GATE_INIT" \
 --k_groupsize 128 \
---v_groupsize 128
+--v_groupsize 128 \
+--fsdp "full_shard auto_wrap offload" \
+--fsdp_transformer_layer_cls_to_wrap 'LlamaDecoderLayer' \
+--fsdp_config scripts/fsdp_config.json \
 
 # ── Why two learning rates ──────────────────────────────────────────────────
 # --learning_rate (15) is SpinQuant's Stiefel/Cayley-SGD step size and applies

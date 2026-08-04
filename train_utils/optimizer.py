@@ -7,6 +7,7 @@
 
 # This code is originally from: https://github.com/JunLi-Galios/Optimization-on-Stiefel-Manifold-via-Cayley-Transform/blob/master/stiefel_optimizer.py
 
+import os
 import random
 
 import torch
@@ -125,9 +126,26 @@ class SGDG(Optimizer):
         if closure is not None:
             loss = closure()
 
-        for group in self.param_groups:
+        # SGDG_DEBUG=1 : 스텝마다 그룹별로 "grad 가 None 인 파라미터가 몇 개인지" 를 찍는다.
+        # p.grad is None 이면 아래에서 조용히 continue 되어 파라미터가 초기값 그대로 남는다.
+        # FSDP 로 감싼 뒤에도 옵티마이저가 원래 파라미터를 붙들고 있는 경우가 대표적이다.
+        _dbg = os.environ.get("SGDG_DEBUG", "") == "1"
+        if _dbg:
+            self._dbg_step = getattr(self, "_dbg_step", 0) + 1
+
+        for gi, group in enumerate(self.param_groups):
             momentum = group["momentum"]
             stiefel = group["stiefel"]
+
+            if _dbg:
+                n = len(group["params"])
+                n_none = sum(1 for p in group["params"] if p.grad is None)
+                gmax = max((p.grad.abs().max().item()
+                            for p in group["params"] if p.grad is not None),
+                           default=float("nan"))
+                print(f"[SGDG_DEBUG] step={self._dbg_step} group={gi} "
+                      f"stiefel={stiefel} lr={group['lr']} params={n} "
+                      f"grad_is_None={n_none}/{n} |grad|max={gmax:.3e}", flush=True)
 
             for p in group["params"]:
                 if p.grad is None:

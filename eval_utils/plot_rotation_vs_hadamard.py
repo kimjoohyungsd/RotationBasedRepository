@@ -51,6 +51,7 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from utils.hadamard_utils import hadamard_matrix  # noqa: E402
+from utils.lie_rotation import cayley_lowrank_factors  # noqa: E402
 
 try:
     import matplotlib
@@ -101,21 +102,107 @@ def discover(state, pattern):
 
 def frobenius(R, H):
     """(aligned, raw) 거리. 둘 다 정규화된 직교행렬이라고 가정."""
-    raw = torch.linalg.norm(R - H).item()
-    dots = (R * H).sum(dim=1)          # 행별 내적
-    s = torch.sign(dots)
+    raw = torch.linalg.norm(R - H).item() # 부호 보정 없이 구함
+    dots = (R * H).sum(dim=1)             # 행별 내적
+    s = torch.sign(dots)                  # 
     s[s == 0] = 1.0
     aligned = torch.linalg.norm(R - H * s.unsqueeze(1)).item()
     return aligned, raw
 
 
+def is_lie_checkpoint(state):
+    return any(isinstance(k, str) and ".lie_chain." in k for k in state.keys())
+
+
+def collect_lie(state, normalize):
+    """LieReSpinQuant 체크포인트: 저랭크 인자에서 각 레이어의 basis 를 재구성한다.
+
+    저장된 것은 dense basis 가 아니라 고정 base 와 전이별 (U, V, gamma) 뿐이다.
+    ReSpinQuant 와 같은 축에 올리려면 재귀를 그대로 되짚어야 한다:
+
+        bases[0]   = base                      (= layers[0].R1)
+        bases[k+1] = bases[k] @ dR_k,   dR_k = I + P_k Z_k P_k^T
+        bases[2i]  = layers[i].R1,  bases[2i+1] = layers[i].R2,  bases[2L] = R1_final
+
+    전이를 하나씩 곱해 나가면서 거리를 바로 계산하므로, D x D 행렬은 항상
+    두 개까지만 메모리에 올라간다 (65개를 다 들고 있으면 fp64 로 ~8.7GB).
+    """
+    base_key = next(k for k in state.keys()
+                    if isinstance(k, str) and k.endswith("lie_chain.base"))  #
+    prefix = base_key[: -len("base")]
+    n_trans = sum(1 for k in state.keys()
+                  if isinstance(k, str) and re.search(rf"^{re.escape(prefix)}deltas\.\d+\.U$", k))
+    n_layers = n_trans // 2
+    meta = state.get("_lie_meta", {})
+    print(f"  [lie] transitions={n_trans} -> {n_layers} layers"
+          + (f", meta={meta}" if meta else ""))
+
+    cur = as_matrix(state[base_key])
+    D = cur.shape[0]
+    H = reference_hadamard(D)
+    scale = float(np.sqrt(D)) if normalize else 1.0
+
+    r1 = dict(idx=[], aligned=[], raw=[], dim=D)
+    r2 = dict(idx=[], aligned=[], raw=[], dim=D)
+    gate_abs = []
+    for k in range(n_trans + 1):
+        a, r = frobenius(cur, H)
+        target = r1 if k % 2 == 0 else r2
+        layer = k // 2
+        if layer < n_layers:                      # 마지막 boundary(=R1_final)는 레이어 없음
+            target["idx"].append(layer)
+            target["aligned"].append(a / scale)
+            target["raw"].append(r / scale)
+        if k == n_trans:
+            break
+        U = as_matrix(state[f"{prefix}deltas.{k}.U"])
+        V = as_matrix(state[f"{prefix}deltas.{k}.V"])
+        g = as_matrix(state[f"{prefix}deltas.{k}.gamma"]).flatten()
+        gate_abs.append(g.abs())
+        P, Z = cayley_lowrank_factors(U, V, g)
+        cur = cur + ((cur @ P) @ Z) @ P.transpose(0, 1)   # bases[k+1] = bases[k] @ dR_k
+
+    if gate_abs:
+        allg = torch.cat(gate_abs)
+        print(f"  [lie] |gamma|  mean={allg.mean():.4e}  max={allg.max():.4e}  "
+              f"open(>1e-4)={int((allg > 1e-4).sum())}/{allg.numel()}")
+
+    out = {"R1": r1, "R2": r2}
+    keys = discover(state, r"layers\.(\d+)\.self_attn\.R2$")
+    if keys:
+        idxs, aligned, raw, dim = [], [], [], None
+        for idx, key in keys.items():
+            R = as_matrix(state[key])
+            dim = R.shape[0]
+            a, r = frobenius(R, reference_hadamard(dim))
+            s = float(np.sqrt(dim)) if normalize else 1.0
+            idxs.append(idx)
+            aligned.append(a / s)
+            raw.append(r / s)
+        out["self_attn.R2"] = dict(idx=idxs, aligned=aligned, raw=raw, dim=dim)
+
+    for name in ("R1", "R2", "self_attn.R2"):
+        if name in out and out[name]["idx"]:
+            d = out[name]
+            print(f"  {name:<13} D={d['dim']:<5} layers={len(d['idx']):<3} "
+                  f"aligned min/mean/max = {min(d['aligned']):.4f} / "
+                  f"{np.mean(d['aligned']):.4f} / {max(d['aligned']):.4f}")
+    return out
+
+
 def collect(path, normalize):
-    """한 R.bin 에서 세 계열의 (layer -> distance) 를 뽑는다."""
+    """한 R.bin 에서 세 계열의 (layer -> distance) 를 뽑는다.
+
+    ReSpinQuant(dense basis 저장) 와 LieReSpinQuant(저랭크 인자 저장) 를 자동 판별한다.
+    """
     try:
         state = torch.load(path, map_location="cpu", mmap=True)
     except (TypeError, RuntimeError):
         state = torch.load(path, map_location="cpu")
     print(f"[load] {path}  ({len(state)} keys)")
+
+    if is_lie_checkpoint(state):
+        return collect_lie(state, normalize)
 
     out = {}
     for name, pattern, _desc, _c, _m in SERIES:
@@ -187,9 +274,9 @@ def main():
         raise SystemExit("--labels 개수가 --rotation_path 개수와 다릅니다.")
 
     runs = []
-    for path, label in zip(args.rotation_path, labels):
-        data = collect(path, normalize)
-        print_table(label, data, normalize)
+    for path, label in zip(args.rotation_path, labels): # Step 1: 현재 labels의 값의 맞게 데이터들을 수집한다
+        data = collect(path, normalize) # 현재 각 위치의 delta 값을 기준으로 Frobenius Norm 값을 구한다
+        print_table(label, data, normalize) #
         runs.append((label, data))
 
     fig, ax = plt.subplots(figsize=(10, 5.5))

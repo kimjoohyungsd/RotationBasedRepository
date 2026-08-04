@@ -34,7 +34,7 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 # --optimized_rotation_path "your_path/R.bin" \
 
 # Option 1 (Default running with Rotation Matrix Fusion)
-python  ptq.py \
+CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --input_model $1 \
 --do_train False \
 --do_eval True \
@@ -54,9 +54,14 @@ python  ptq.py \
 --v_groupsize 128 \
 --wikitext2 \
 --distribute \
-# --rotate \
-# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B/R1644.bin" \
-# --wikitext2 \
+--rotate \
+--optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/SpinQuant/W:16A:4KV:4/R.bin" \
+--wikitext2 \
+--distribute \
+--wandb \
+--wandb_project "rotation-based-evaluation" \
+--wandb_id "jhk971114" \
+
 # --w_clip \
 # --w_groupsize 32 \
 # --a_groupsize 32 \

@@ -20,12 +20,12 @@ CUDA_VISIBLE_DEVICES=0,1 python ptq.py \
 --rotate \
 --lierespinquant \
 --lie_rank 32 \
---optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/LieReSpinQuant/W:16A:4KV:4/R.bin" \
+--optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/Llama-3.1-8B/LieReSpinQuant/W:16A:4KV:4/R.bin" \
 --wikitext2 \
---eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-2-7b-hf/LieReSpinQuant/w4a4kv4.txt" \
+--eval_out_path "/home/jhkcool97/RotationBasedRepository/logs/Llama-3.1-8b/LieReSpinQuant/w4a4kv4.txt" \
 --distribute \
---lm_eval \
---lm_eval_batch_size 128 \
 --wandb \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \
+
+# --distribute \
