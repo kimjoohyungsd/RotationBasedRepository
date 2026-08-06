@@ -55,13 +55,13 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --wikitext2 \
 --distribute \
 --rotate \
---optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/SpinQuant/W:16A:4KV:4/R.bin" \
 --wikitext2 \
 --distribute \
 --wandb \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \
-
+--dynamic_residual_scaling \
+# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/SpinQuant/W:16A:4KV:4/R.bin" \
 # --w_clip \
 # --w_groupsize 32 \
 # --a_groupsize 32 \

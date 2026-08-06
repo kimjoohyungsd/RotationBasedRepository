@@ -262,7 +262,24 @@ def parser_gen():
         "Weight rows [Out_dim] and Activation rows [Token]. This reduces error caused "
         "by outliers in specific channels."
             )
-    )   
+    )
+
+    parser.add_argument(
+        '--dynamic_residual_scaling',
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "FPTQuant's Sn transform (arXiv:2506.04985, Section 3.1.3): move each "
+            "RMSNorm so it also normalizes the residual stream, scaling every block's "
+            "output by the same per-token factor before the residual add. Function-"
+            "preserving without quantization (RMSNorm is scale-invariant, so nothing "
+            "upstream changes); with quantization, it reduces outliers at the "
+            "down_proj/o_proj input activations, which are otherwise among the worst "
+            "quantization bottlenecks. Zero trainable parameters -- safe to combine with "
+            "--rotate/--respinquant/--w_rtn/GPTQ with no training step required."
+        )
+    )
+
     # Activation Quantization Arguments
     parser.add_argument(
         "--a_bits",

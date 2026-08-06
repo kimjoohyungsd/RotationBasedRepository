@@ -264,7 +264,7 @@ def compute_residual_subspace(T: torch.Tensor, rank: int):
     Us, _, Vhs = torch.linalg.svd(T_sub)
     R_sub = Us @ Vhs                      # r x r, in SO(r)
     M = R_sub - torch.eye(r, dtype=T.dtype, device=T.device)
-    return Q.to(torch.float32).contiguous(), M.to(torch.float32).contiguous()
+    return Q.to(torch.float16).contiguous(), M.to(torch.float16).contiguous()
 
 
 @torch.inference_mode()

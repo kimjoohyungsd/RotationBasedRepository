@@ -129,12 +129,36 @@ class LlamaRMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, return_scale=False):
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
-        variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+        variance = hidden_states.pow(2).mean(-1, keepdim=True) # [Batch, Seq, hidden_dim] =>
+        # rsqrt(x) is a single fused reciprocal-sqrt (one rounding). Computing it as
+        # 1.0 / torch.sqrt(x) instead would round twice -- once for the sqrt, once for the
+        # division -- for no benefit, so the fused form is kept deliberately.
+        inv_rms = torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = hidden_states * inv_rms
+        hidden_states = self.weight * hidden_states.to(input_dtype)
+        if return_scale:
+            # FPTQuant Sn (--dynamic_residual_scaling) reuses this rsqrt directly instead of
+            # recomputing it in a separate function. This is only valid when self.weight is
+            # all-ones, i.e. after fuse_layer_norms() has fused it into the downstream
+            # linears -- callers (LlamaDecoderLayer) must guarantee --rotate ran first;
+            # ptq_model() asserts this precondition.
+            #
+            # Deliberately returned in fp32 (NOT cast to input_dtype): the caller multiplies
+            # this into a running `residual_scale` that is threaded and re-multiplied across
+            # every block of every layer (dozens of multiplications). Rounding it to bf16/
+            # fp16 at each of those steps would compound -- bf16 has ~3 decimal digits, so a
+            # 64-step product can drift by a visible fraction of a percent, and since this
+            # scale multiplies the raw block output BEFORE it's added to the (exactly
+            # renormalized) residual, that drift is a real additive error in the residual
+            # stream, not just cosmetic bookkeeping noise. Keeping the running product in
+            # fp32 and rounding only once, at each actual point of use against a bf16/fp16
+            # activation (see LlamaMLP.forward / attention .forward), bounds the error to a
+            # single fresh rounding per use instead of an accumulated chain of them.
+            return hidden_states, inv_rms
+        return hidden_states
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
@@ -323,7 +347,7 @@ class LlamaMLP(nn.Module):
         )
         self.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, x):
+    def forward(self, x, residual_scale=None):
         if self.config.pretraining_tp > 1:
             slice = self.intermediate_size // self.config.pretraining_tp
             gate_proj_slices = self.gate_proj.weight.split(slice, dim=0)
@@ -345,14 +369,38 @@ class LlamaMLP(nn.Module):
                 dim=-1,
             )
 
-            intermediate_states = (self.act_fn(gate_proj) * up_proj).split(slice, dim=2)
+            intermediate_states = self.act_fn(gate_proj) * up_proj
+            if residual_scale is not None:
+                # residual_scale is carried in fp32 (see LlamaRMSNorm.forward); round it to
+                # the activation's dtype only here, at its single point of use, instead of
+                # letting bf16/fp16 rounding compound across every layer it's threaded
+                # through.
+                intermediate_states = intermediate_states * residual_scale.to(
+                    intermediate_states.dtype
+                )
+            intermediate_states = intermediate_states.split(slice, dim=2)
             down_proj = [
                 F.linear(intermediate_states[i], down_proj_slices[i])
                 for i in range(self.config.pretraining_tp)
             ]
             down_proj = sum(down_proj)
         else:
-            down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+            # FPTQuant Sn (pseudodynamic residual scaling): apply the per-token scale to
+            # the SwiGLU intermediate activation -- the worst-outlier quantizer location
+            # in this block (down_proj's input) -- rather than to down_proj's output. Since
+            # down_proj has no bias, down_proj(s ⊙ h) == s ⊙ down_proj(h), so this is exactly
+            # equivalent to scaling the block's final output, but it additionally lets the
+            # down_proj input quantizer see the reduced-outlier activation.
+            intermediate_states = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
+            if residual_scale is not None:
+                # residual_scale is carried in fp32 (see LlamaRMSNorm.forward); round it to
+                # the activation's dtype only here, at its single point of use, instead of
+                # letting bf16/fp16 rounding compound across every layer it's threaded
+                # through.
+                intermediate_states = intermediate_states * residual_scale.to(
+                    intermediate_states.dtype
+                )
+            down_proj = self.down_proj(intermediate_states)
 
         return down_proj
 
@@ -427,6 +475,7 @@ class LlamaAttention(nn.Module):
         position_embeddings: Optional[
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
+        residual_scale: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         bsz, q_len, _ = hidden_states.size()
@@ -526,6 +575,14 @@ class LlamaAttention(nn.Module):
 
         attn_output = attn_output.reshape(bsz, q_len, -1)
 
+        # FPTQuant Sn: scale the attention context (BMM output) before o_proj -- o_proj
+        # has no bias, so o_proj(s ⊙ h) == s ⊙ o_proj(h); this only additionally exposes
+        # the scaled activation to o_proj's input quantizer.
+        if residual_scale is not None:
+            # residual_scale is carried in fp32; round it down only here, at its single
+            # point of use, instead of compounding bf16/fp16 rounding across every layer.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+
         if self.config.pretraining_tp > 1:
             attn_output = attn_output.split(
                 self.hidden_size // self.config.pretraining_tp, dim=2
@@ -575,6 +632,8 @@ class LlamaFlashAttention2(LlamaAttention):
         position_embeddings: Optional[
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
+        residual_scale: Optional[torch.Tensor] = None,
+        **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if isinstance(past_key_value, StaticCache):
             raise ValueError(
@@ -672,6 +731,11 @@ class LlamaFlashAttention2(LlamaAttention):
         )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
+        # FPTQuant Sn: see LlamaAttention.forward for why this is safe pre-o_proj.
+        if residual_scale is not None:
+            # residual_scale is carried in fp32; round it down only here, at its single
+            # point of use, instead of compounding bf16/fp16 rounding across every layer.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
         attn_output = self.o_proj(attn_output)
 
         if not output_attentions:
@@ -700,6 +764,7 @@ class LlamaSdpaAttention(LlamaAttention):
         position_embeddings: Optional[
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
+        residual_scale: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
         if output_attentions:
@@ -717,6 +782,7 @@ class LlamaSdpaAttention(LlamaAttention):
                 use_cache=use_cache,
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
+                residual_scale=residual_scale,
             )
 
         bsz, q_len, _ = hidden_states.size()
@@ -786,6 +852,12 @@ class LlamaSdpaAttention(LlamaAttention):
         attn_output = attn_output.transpose(1, 2).contiguous()
         attn_output = attn_output.view(bsz, q_len, -1)
 
+        # FPTQuant Sn: see LlamaAttention.forward for why this is safe pre-o_proj.
+        if residual_scale is not None:
+            # residual_scale is carried in fp32; round it down only here, at its single
+            # point of use, instead of compounding bf16/fp16 rounding across every layer.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+
         attn_output = self.o_proj(attn_output)
 
         return attn_output, None, past_key_value
@@ -836,12 +908,20 @@ class LlamaDecoderLayer(nn.Module):
         position_embeddings: Optional[
             Tuple[torch.Tensor, torch.Tensor]
         ] = None,  # will become mandatory in v4.46
+        residual_scale: Optional[torch.Tensor] = None,
         **kwargs,
     ) -> Tuple[
         torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]
     ]:
         """
         Args:
+            residual_scale (`torch.Tensor`, *optional*): running per-token scale of shape
+                (batch, seq_len, 1) for FPTQuant's Sn (pseudodynamic residual scaling,
+                --dynamic_residual_scaling). None means the transform is disabled -- the
+                layer then behaves exactly as before. When enabled, callers MUST thread the
+                tensor returned as this layer's last output element into the next layer's
+                `residual_scale` argument (see LlamaModel.forward); it is not recoverable
+                from `hidden_states` alone.
             hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
             attention_mask (`torch.FloatTensor`, *optional*):
                 attention mask of size `(batch_size, sequence_length)` if flash attention is used or `(batch_size, 1,
@@ -863,8 +943,12 @@ class LlamaDecoderLayer(nn.Module):
                 into the model
         """
         residual = hidden_states
-
-        hidden_states = self.input_layernorm(hidden_states)
+        if residual_scale is not None:
+            hidden_states, inv_rms = self.input_layernorm(hidden_states, return_scale=True)
+            residual = hidden_states
+            residual_scale = residual_scale * inv_rms
+        else:
+            hidden_states = self.input_layernorm(hidden_states)
 
         # Self Attention
         hidden_states, self_attn_weights, present_key_value = self.self_attn(
@@ -876,6 +960,7 @@ class LlamaDecoderLayer(nn.Module):
             use_cache=use_cache,
             cache_position=cache_position,
             position_embeddings=position_embeddings,
+            residual_scale=residual_scale,
             **kwargs,
         )
         # ReSpinQuant: align the residual basis transition R1_in -> R2_mid.
@@ -892,8 +977,22 @@ class LlamaDecoderLayer(nn.Module):
 
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
+        if residual_scale is not None:
+            # FPTQuant Sn: self.post_attention_layernorm's output is simultaneously (a) the
+            # normal MLP branch input -- RMSNorm's scale-invariance makes this identical to
+            # what the un-Sn-scaled network computes -- and (b) the Sn-renormalized residual
+            # to carry forward. fuse_layer_norms (required by --dynamic_residual_scaling;
+            # see ptq_model()) has already zeroed this norm's weight to all-ones, so the one
+            # call already needed for the branch input does double duty; no separate
+            # weightless-normalize step is needed.
+            hidden_states, inv_rms = self.post_attention_layernorm(
+                hidden_states, return_scale=True
+            )
+            residual = hidden_states
+            residual_scale = residual_scale * inv_rms
+        else:
+            hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states, residual_scale=residual_scale)
         # ReSpinQuant: align the residual basis transition R2_mid -> R1_next.
         if self.T_ffn is not None:
             # exact:  residual @ T_ffn
@@ -904,7 +1003,18 @@ class LlamaDecoderLayer(nn.Module):
                 (residual.float() @ self.Q_ffn) @ self.M_ffn
             ) @ self.Q_ffn.t()
             residual = residual.to(hidden_states.dtype)
-        hidden_states = residual + hidden_states
+        if residual_scale is not None:
+            # No "next layer's input_layernorm" is reachable from inside this layer's
+            # forward, but every LlamaRMSNorm in a fused model shares the same eps and
+            # weight=1, so this layer's own input_layernorm is reused purely for its rsqrt
+            # (not semantically as "this layer's attention norm"). The next layer applying
+            # its own input_layernorm to this already-unit-RMS result is a harmless no-op.
+            hidden_states, inv_rms = self.input_layernorm(
+                residual + hidden_states, return_scale=True
+            )
+            residual_scale = residual_scale * inv_rms
+        else:
+            hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
 
@@ -913,6 +1023,10 @@ class LlamaDecoderLayer(nn.Module):
 
         if use_cache:
             outputs += (present_key_value,)
+
+        # Always last: the (possibly still-None) running residual_scale, so callers can
+        # retrieve it via layer_outputs[-1] regardless of output_attentions/use_cache.
+        outputs += (residual_scale,)
 
         return outputs
 
@@ -1154,6 +1268,22 @@ class LlamaModel(LlamaPreTrainedModel):
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
+        # FPTQuant Sn (pseudodynamic residual scaling): S_0 = 1, i.e. the embedding output
+        # (Z-tilde_0 = X_1 in the paper) enters layer 0 unscaled. Shape (batch, seq, 1) so
+        # it broadcasts against (batch, seq, hidden) everywhere it's multiplied in. Kept in
+        # fp32 (not hidden_states.dtype) because it's re-multiplied by a fresh inv_rms at
+        # every block of every layer -- see LlamaRMSNorm.forward's return_scale for why
+        # bf16/fp16 here would compound rounding error across the whole depth of the model.
+        residual_scale = (
+            torch.ones(
+                hidden_states.shape[:-1] + (1,),
+                dtype=torch.float32,
+                device=hidden_states.device,
+            )
+            if getattr(self.config, "dynamic_residual_scaling", False)
+            else None
+        )
+
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
@@ -1174,6 +1304,7 @@ class LlamaModel(LlamaPreTrainedModel):
                     use_cache,
                     cache_position,
                     position_embeddings,
+                    residual_scale,
                 )
             else:
                 layer_outputs = decoder_layer(
@@ -1185,9 +1316,11 @@ class LlamaModel(LlamaPreTrainedModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
+                    residual_scale=residual_scale,
                 )
 
             hidden_states = layer_outputs[0]
+            residual_scale = layer_outputs[-1]
 
             if use_cache:
                 next_decoder_cache = layer_outputs[2 if output_attentions else 1]
@@ -1195,7 +1328,7 @@ class LlamaModel(LlamaPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
-        hidden_states = self.norm(hidden_states)
+        hidden_states, _ = self.norm(hidden_states,return_scale=self.config.dynamic_residual_scaling)
 
         # add hidden states from the last decoder layer
         if output_hidden_states:

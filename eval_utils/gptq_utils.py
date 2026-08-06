@@ -219,7 +219,23 @@ def gptq_fwrd(model, dataloader, dev, args):
         (args.nsamples, 2048, model.config.hidden_size), dtype=dtype, device=buf_device
     )
 
-    
+    # FPTQuant Sn: LlamaModel.forward threads a running per-token scale layer-to-layer,
+    # but GPTQ never goes through LlamaModel.forward -- it calls each decoder layer
+    # directly (Catcher/hooks above). To keep GPTQ's Hessians calibrated on the SAME
+    # activations the final (Sn-enabled) model will actually produce, we replicate that
+    # threading here: one running scale per calibration sample, ping-ponged across layers
+    # exactly like `inps`/`outs`.
+    dyn_scaling = getattr(model.config, "dynamic_residual_scaling", False)
+    # fp32, not `dtype` (the model's bf16/fp16): this is re-multiplied by a fresh inv_rms at
+    # every block of every layer, so keeping it low-precision would compound rounding error
+    # across depth -- see LlamaRMSNorm.forward's return_scale docstring.
+    scales = (
+        torch.ones((args.nsamples, 2048, 1), dtype=torch.float32, device=buf_device)
+        if dyn_scaling
+        else None
+    )
+
+
     cache = {"i": 0, "attention_mask": None}
 
     class Catcher(nn.Module):
@@ -318,10 +334,12 @@ def gptq_fwrd(model, dataloader, dev, args):
             for name in subset:
                 handles.append(subset[name].register_forward_hook(add_batch(name)))
             for j in range(args.nsamples):
+                sc = scales[j].unsqueeze(0).to(layer_dev) if scales is not None else None
                 outs[j] = layer(
                     inps[j].unsqueeze(0).to(layer_dev),
                     attention_mask=amask,
                     position_ids=pids,
+                    residual_scale=sc,
                 )[0]
             for h in handles:
                 h.remove()
@@ -338,12 +356,21 @@ def gptq_fwrd(model, dataloader, dev, args):
                 quantizers["model.layers.%d.%s" % (i, name)] = gptq[name].quantizer
                 gptq[name].free()
 
+        out_scales = torch.empty_like(scales) if scales is not None else None
         for j in range(args.nsamples):
-            outs[j] = layer(
+            sc = scales[j].unsqueeze(0).to(layer_dev) if scales is not None else None
+            layer_out = layer(
                 inps[j].unsqueeze(0).to(layer_dev),
                 attention_mask=amask,
                 position_ids=pids,
-            )[0]
+                residual_scale=sc,
+            )
+            outs[j] = layer_out[0]
+            if scales is not None:
+                # layer_out[-1] is this layer's updated running scale (see
+                # LlamaDecoderLayer.forward) -- this recompute pass is the one whose
+                # `outs` becomes the next layer's `inps`, so it's the authoritative one.
+                out_scales[j] = layer_out[-1].squeeze(0).to(buf_device)
 
         if not dispatched:
             layers[i] = layer.cpu()
@@ -353,6 +380,8 @@ def gptq_fwrd(model, dataloader, dev, args):
         torch.cuda.empty_cache()
 
         inps, outs = outs, inps
+        if scales is not None:
+            scales = out_scales
 
     model.config.use_cache = use_cache
     utils.cleanup_memory(verbos=True)
@@ -445,6 +474,12 @@ def gptq_fwrd_distribute(model, dataloader, args, devices=None):
     hidden = model.config.hidden_size
     # Calibration buffers live on CPU (4 GB each at 70B; the box has plenty of RAM).
     inps = torch.zeros((nsamples, seqlen, hidden), dtype=dtype, device="cpu")
+    # FPTQuant Sn: see the identical buffer in gptq_fwrd for why this exists -- GPTQ
+    # bypasses LlamaModel.forward's own residual_scale threading, so we replicate it here.
+    # fp32 (not `dtype`), same reasoning as gptq_fwrd: avoids compounding rounding error
+    # across every layer this running scale is re-multiplied through.
+    dyn_scaling = getattr(model.config, "dynamic_residual_scaling", False)
+    scales = torch.ones((nsamples, seqlen, 1), dtype=torch.float32, device="cpu") if dyn_scaling else None
     cache = {"i": 0, "attention_mask": None, "position_ids": None}
 
     class Catcher(nn.Module):
@@ -535,10 +570,12 @@ def gptq_fwrd_distribute(model, dataloader, args, devices=None):
             # Stream calibration samples one at a time: only a single [1, seq, hidden]
             # activation is on the GPU at any moment.
             for j in range(nsamples):
+                sc = scales[j].unsqueeze(0).to(dev) if scales is not None else None
                 layer(
                     inps[j].unsqueeze(0).to(dev),
                     attention_mask=amask,
                     position_ids=pids,
+                    residual_scale=sc,
                 )
             for h in handles:
                 h.remove()
@@ -555,13 +592,20 @@ def gptq_fwrd_distribute(model, dataloader, args, devices=None):
                 gptq[name].free()
 
         # Recompute this layer's outputs with the now-quantized weights -> store on CPU.
+        out_scales = torch.empty_like(scales) if scales is not None else None
         for j in range(nsamples):
-            out = layer(
+            sc = scales[j].unsqueeze(0).to(dev) if scales is not None else None
+            layer_out = layer(
                 inps[j].unsqueeze(0).to(dev),
                 attention_mask=amask,
                 position_ids=pids,
-            )[0]
-            outs[j] = out.squeeze(0).to("cpu")
+                residual_scale=sc,
+            )
+            outs[j] = layer_out[0].squeeze(0).to("cpu")
+            if scales is not None:
+                out_scales[j] = layer_out[-1].squeeze(0).to("cpu")
+        if scales is not None:
+            scales = out_scales
 
         layers[i] = layer.cpu()
         _move_respin_attrs(layers[i], "cpu")

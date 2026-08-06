@@ -80,6 +80,16 @@ def evaluator_single_gpu(model, testenc, dev, args):
         device=dev,
     ) # [Batch의 개수, Num_batch, Seq_len, model.confing.hidden_size]로 설정함 
     inps = [0] * nbatches # []
+    # FPTQuant Sn: this evaluator, like GPTQ, calls each decoder layer directly instead of
+    # going through LlamaModel.forward, so the running per-token scale must be threaded by
+    # hand here too -- one entry per batch, ping-ponged across layers alongside inps/outs.
+    # fp32 (not `dtype`): re-multiplied by a fresh inv_rms at every block of every layer, so
+    # keeping it low-precision would compound rounding error across depth.
+    dyn_scaling = getattr(model.config, "dynamic_residual_scaling", False)
+    scales = [
+        torch.ones((input_ids[i].shape[0], model.seqlen, 1), dtype=torch.float32, device=dev)
+        for i in range(nbatches)
+    ] if dyn_scaling else None
     cache = {"i": 0, "attention_mask": None}
 
     class Catcher(torch.nn.Module): # catcher
@@ -123,17 +133,25 @@ def evaluator_single_gpu(model, testenc, dev, args):
             torch.save(captured_io, save_path)
             logging.info(f"Dumped layer input and output to: {save_path}")
 
+        out_scales = [None] * nbatches if scales is not None else None
         for j in range(nbatches):
-            outs[j] = layer(
+            sc = scales[j] if scales is not None else None
+            layer_out = layer(
                 inps[j],
                 attention_mask=attention_mask,
                 #  defined.
                 position_ids=position_ids,
-            )[0]
+                residual_scale=sc,
+            )
+            outs[j] = layer_out[0]
+            if scales is not None:
+                out_scales[j] = layer_out[-1]
         layers[i] = layer.cpu()
         del layer
         torch.cuda.empty_cache()
         inps, outs = outs, inps
+        if scales is not None:
+            scales = out_scales
 
     if model.model.norm is not None:
         model.model.norm = model.model.norm.to(dev)

@@ -25,6 +25,29 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
     transformers.set_seed(args.seed)
     model.eval()
 
+    # FPTQuant Sn: set once, before any forward pass (including GPTQ calibration), so
+    # every forward -- calibration, activation-quantizer range-setting, GPTQ, and final
+    # eval -- sees the exact same residual-scaling behavior. gptq_utils.gptq_fwrd/
+    # gptq_fwrd_distribute read this same flag to thread a matching per-sample running
+    # scale through their manual (non-LlamaModel.forward) layer loop.
+    #
+    # HARD requirement: LlamaDecoderLayer.forward folds Sn's residual renormalization into
+    # the *existing* input_layernorm/post_attention_layernorm calls (reusing their rsqrt via
+    # return_scale=True) instead of a separate weightless-norm step. That reuse is only
+    # correct once fuse_layer_norms has zeroed those norms' weight to all-ones -- which only
+    # happens inside the `if args.rotate:` branch below. Without --rotate there is no
+    # fusion, so the reused norm would silently inject its real per-channel weight into the
+    # residual stream and break function-preservation. Assert instead of degrading quietly.
+    model.config.dynamic_residual_scaling = getattr(args, "dynamic_residual_scaling", False)
+    if model.config.dynamic_residual_scaling:
+        assert args.rotate, (
+            "--dynamic_residual_scaling requires --rotate: it reuses "
+            "input_layernorm/post_attention_layernorm as a weightless norm, which is only "
+            "true after fuse_layer_norms (called under --rotate) has fused their weight "
+            "into the downstream linears."
+        )
+        log.info("FPTQuant Sn (pseudodynamic residual scaling) enabled")
+
     # Smoothing Applied if requested
     if args.smooth_quant:
         args.act_scales = f"./act_scales/{model_args.input_model.split('/')[-1]}.pt"
@@ -48,7 +71,7 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
         ))
 
         
-        if not args.deactivate_r1:
+        if not args.deactivate_r1 or args.dynamic_residual_scaling:
             fuse_norm_utils.fuse_layer_norms(model) #
             log.info("LayerNorm Fusion Applied For R1 Transform")
 
