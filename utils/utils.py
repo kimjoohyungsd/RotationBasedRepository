@@ -241,6 +241,8 @@ def setup_wandb(input_model,args):
         config["diagonal"] = getattr(args, "diagonal", False)
         config["diagonal_size"] = args.diagonal_size if getattr(args, "diagonal", False) else None
         config["offline"] = getattr(args, "offline", False)
+        config['dynamic_residual_scaling'] = getattr(args,'dynamic_residual_scaling',False)
+        tags.append('dynamic_residual_scaling')
         tags.append("rotation")
         if getattr(args,'respinquant',False):
             tags.append('respinquant')

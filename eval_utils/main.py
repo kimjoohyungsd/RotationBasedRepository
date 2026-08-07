@@ -40,12 +40,12 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
     # residual stream and break function-preservation. Assert instead of degrading quietly.
     model.config.dynamic_residual_scaling = getattr(args, "dynamic_residual_scaling", False)
     if model.config.dynamic_residual_scaling:
-        assert args.rotate, (
-            "--dynamic_residual_scaling requires --rotate: it reuses "
-            "input_layernorm/post_attention_layernorm as a weightless norm, which is only "
-            "true after fuse_layer_norms (called under --rotate) has fused their weight "
-            "into the downstream linears."
-        )
+        # assert args.rotate, (
+        #     "--dynamic_residual_scaling requires --rotate: it reuses "
+        #     "input_layernorm/post_attention_layernorm as a weightless norm, which is only "
+        #     "true after fuse_layer_norms (called under --rotate) has fused their weight "
+        #     "into the downstream linears."
+        # )
         log.info("FPTQuant Sn (pseudodynamic residual scaling) enabled")
 
     # Smoothing Applied if requested
@@ -62,6 +62,10 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
     # Rotate the weights
     # log.info("LayerNorm Fusion Applied For R1 Transform")
     # fuse_norm_utils.fuse_layer_norms(model)
+    if args.rotate and not args.deactivate_r1 or args.dynamic_residual_scaling:
+        fuse_norm_utils.fuse_layer_norms(model) #
+        log.info("LayerNorm Fusion Applied For R1 Transform")
+    
     if args.rotate:
         log.info("R1: {}, R2: {}, R3: {}, R4: {}".format(
             not args.deactivate_r1, 
@@ -70,12 +74,6 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
             not args.deactivate_r4                         # R4: 쉼표로 구분 필수
         ))
 
-        
-        if not args.deactivate_r1 or args.dynamic_residual_scaling:
-            fuse_norm_utils.fuse_layer_norms(model) #
-            log.info("LayerNorm Fusion Applied For R1 Transform")
-
-        
         if getattr(args, "lierespinquant", False):
             log.info(
                 "LieReSpinQuant: per-layer basis fusion + EXACT rank-{} Cayley "

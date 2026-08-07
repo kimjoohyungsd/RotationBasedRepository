@@ -489,6 +489,53 @@ def parser_gen():
     parser.add_argument("--layer_limit",type=int, default=-1,help="Layer limit of distribution profiling")
     parser.add_argument("--draw",action=argparse.BooleanOptionalAction,default=False,help="Whether to Draw and Save png file")
 
+    # analyze_dynamic_scaling.py Arguments (FPTQuant Sn distribution analysis)
+    parser.add_argument(
+        "--sn_seqlen", type=int, default=512,
+        help="Token length of the single calibration sequence used for the Sn "
+             "distribution analysis (paper's Figure 2 uses 512).",
+    )
+    parser.add_argument(
+        "--sn_layers", type=int, nargs="+", default=[0, 1],
+        help="Decoder layer indices to render the detailed 3D / per-token figures for. "
+             "The kurtosis-vs-sequential-index curve always covers every layer.",
+    )
+    parser.add_argument(
+        "--sn_capture", type=str, default="wrapper", choices=["wrapper", "linear"],
+        help=(
+            "Where to tap each activation. 'wrapper' hooks the ActQuantWrapper input, "
+            "i.e. the activation BEFORE the online Hadamard and the activation quantizer "
+            "-- this is the distribution Sn actually reshapes, and what the paper plots. "
+            "'linear' hooks the inner nn.Linear named in gptq_fwrd's `sequential` list, "
+            "i.e. AFTER those transforms (what GPTQ builds its Hessian from)."
+        ),
+    )
+    parser.add_argument(
+        "--sn_keep_first_token", action=argparse.BooleanOptionalAction, default=False,
+        help="Keep the leading [BOS] token when plotting/computing kurtosis. Off by "
+             "default: BOS carries a massive activation (Sun et al., 2024) that dominates "
+             "every statistic, and the paper likewise hides it in Figure 2.",
+    )
+    parser.add_argument(
+        "--sn_verify_shared", action=argparse.BooleanOptionalAction, default=False,
+        help="Hook every module of each gptq `sequential` group and assert it receives "
+             "exactly the same activation as the group's representative. The analysis "
+             "captures one representative per group on that basis; turn this on to "
+             "re-validate it for a new model family or --sn_capture setting.",
+    )
+    parser.add_argument(
+        "--sn_article", type=int, default=0,
+        help="Which wikitext-2 test article (0-based, among those long enough) to feed "
+             "the Sn analysis. The analysis input is a single coherent article tokenized "
+             "from its first word, so position 0 is a real [BOS] -- unlike slicing a "
+             "window out of the whole concatenated corpus, which starts mid-sentence.",
+    )
+    parser.add_argument(
+        "--sn_text_file", type=str, default=None,
+        help="Read the Sn analysis text from this file instead of wikitext-2. Tokenized "
+             "the same way (BOS prepended, truncated to --sn_seqlen).",
+    )
+
     # args = parser.parse_args()
     
     args, unknown = parser.parse_known_args()

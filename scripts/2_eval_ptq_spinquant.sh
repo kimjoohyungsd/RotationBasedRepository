@@ -34,6 +34,42 @@ export MASTER_PORT=$((12000 + $RANDOM % 20000))
 # --optimized_rotation_path "your_path/R.bin" \
 
 # Option 1 (Default running with Rotation Matrix Fusion)
+# CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
+# --input_model $1 \
+# --do_train False \
+# --do_eval True \
+# --per_device_eval_batch_size 4 \
+# --model_max_length 2048 \
+# --fp16 False \
+# --bf16 True \
+# --save_safetensors False \
+# --w_rtn \
+# --w_clip \
+# --w_bits $2 \
+# --a_bits $3 \
+# --k_bits $4 \
+# --v_bits $4 \
+# --k_asym \
+# --v_asym \
+# --a_asym \
+# --k_groupsize 128 \
+# --v_groupsize 128 \
+# --wikitext2 \
+# --distribute \
+# --rotate \
+# --wikitext2 \
+# --distribute \
+# --wandb \
+# --wandb_project "rotation-based-evaluation" \
+# --wandb_id "jhk971114" \
+# --dynamic_residual_scaling \
+# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/SpinQuant/W:16A:4KV:4/R.bin" \
+# --w_clip \
+# --w_groupsize 32 \
+# --a_groupsize 32 \
+
+# --a_asym \
+
 CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --input_model $1 \
 --do_train False \
@@ -44,6 +80,8 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --bf16 True \
 --save_safetensors False \
 --w_bits $2 \
+--w_rtn \
+--w_clip \
 --a_bits $3 \
 --k_bits $4 \
 --v_bits $4 \
@@ -60,15 +98,7 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --wandb \
 --wandb_project "rotation-based-evaluation" \
 --wandb_id "jhk971114" \
---dynamic_residual_scaling \
-# --optimized_rotation_path "/home/jhkcool97/Rotation_repository/Matrixes/LLAMA-2-7B-hf/SpinQuant/W:16A:4KV:4/R.bin" \
-# --w_clip \
-# --w_groupsize 32 \
-# --a_groupsize 32 \
-# --w_rtn \
-# --a_asym \
-
-
+# --dynamic_residual_scaling \
 
 
 
