@@ -535,6 +535,20 @@ def parser_gen():
         help="Read the Sn analysis text from this file instead of wikitext-2. Tokenized "
              "the same way (BOS prepended, truncated to --sn_seqlen).",
     )
+    parser.add_argument(
+        "--sn_channel_dist", action=argparse.BooleanOptionalAction, default=False,
+        help="Also render a per-CHANNEL (hidden dimension index) min/max + percentile-band "
+             "figure for the down_proj input of each --sn_layers layer -- the QuaRot/"
+             "OSTQuant-style 'activation range' plot, complementing the paper's per-token "
+             "Figure 2. Saved as <layer_dir>/down_proj_channel_dist.png.",
+    )
+    parser.add_argument(
+        "--sn_channel_percentiles", type=float, nargs="+", default=[1.0, 25.0],
+        help="Percentile band(s) p to draw around the median in --sn_channel_dist, each "
+             "paired with its mirror 100-p (e.g. 1 -> 1/99, 25 -> 25/75). Min/Max is always "
+             "drawn. Add a finer tail like 0.01 for a 0.01/99.99 band (needs a long enough "
+             "--sn_seqlen to be meaningful).",
+    )
 
     # args = parser.parse_args()
     

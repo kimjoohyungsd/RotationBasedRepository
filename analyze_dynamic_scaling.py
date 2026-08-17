@@ -23,6 +23,12 @@ Three figures are produced:
      The paper's Figure 2: per-token min / max / 1% / 99% of the down_proj input
      (the SwiGLU intermediate), Original vs +Sn.
 
+  4. `<out>/layer<L>/down_proj_channel_dist.png` (only with --sn_channel_dist)
+     The QuaRot/OSTQuant-style "activation range" figure: the transpose of (3) -- per
+     hidden-dimension-index min / max / percentile bands of the down_proj input,
+     collapsed over tokens instead of channels, Original vs +Sn. Which bands are drawn
+     (beyond the always-on Min/Max) is controlled by --sn_channel_percentiles.
+
 The analysis input is one coherent wikitext-2 article tokenized from its first word, so
 position 0 is a genuine [BOS] -- the token the paper's Figure 2 calls out and hides.
 (Slicing a window out of the concatenated corpus, as data_utils.get_wikitext2 does for
@@ -311,6 +317,55 @@ def plot_token_distribution(base, sn, kurt_base, kurt_sn, out_path, layer_idx, n
     fig.suptitle(
         f"layers.{layer_idx}.{name} input - kurtosis {kurt_base:.0f} -> {kurt_sn:.0f} "
         f"({delta:+.1f}%)", fontsize=11,
+    )
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close(fig)
+
+
+def plot_channel_distribution(base, sn, kurt_base, kurt_sn, out_path, layer_idx, name,
+                               percentiles=(1.0, 25.0)):
+    """QuaRot/OSTQuant-style "activation range" figure: per-CHANNEL min/max + percentile
+    bands across tokens (the transpose of plot_token_distribution's per-token view).
+
+    plot_token_distribution collapses over channels (axis=1) to show, per token, how wide
+    the activation spreads across the hidden dimension. This collapses over tokens
+    (axis=0) instead, so the x-axis becomes "Hidden dimension index" -- which channels
+    carry the outliers is exactly what QuaRot's Fig. 3 / OSTQuant's MHSA-input figure use
+    to show a transform squashing a handful of runaway channels rather than the whole
+    distribution.
+    """
+    percentiles = sorted(set(percentiles))
+    # Min/Max always drawn as the outermost, widest band; requested percentiles nest
+    # inside it in the same color per pair, matching the reference figures' legend.
+    colors = ["tab:blue", "crimson", "goldenrod", "purple", "teal", "brown"]
+    if len(percentiles) + 1 > len(colors):
+        colors += plt.cm.tab10.colors  # extend gracefully if many bands are requested
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.5))
+    panels = [
+        (base, kurt_base, f"(a) Block {layer_idx} - Original"),
+        (sn, kurt_sn, f"(b) Block {layer_idx} - With $S_n$"),
+    ]
+    for ax, (arr, k, title) in zip(axes, panels):
+        a = arr.numpy()
+        x = np.arange(a.shape[1])
+        ax.plot(x, a.min(axis=0), color=colors[0], lw=0.5, label="Min/Max")
+        ax.plot(x, a.max(axis=0), color=colors[0], lw=0.5)
+        for i, p in enumerate(percentiles, start=1):
+            lo = np.percentile(a, p, axis=0)
+            hi = np.percentile(a, 100.0 - p, axis=0)
+            ax.plot(x, lo, color=colors[i], lw=0.5, label=f"{p:g}/{100 - p:g} Percentile")
+            ax.plot(x, hi, color=colors[i], lw=0.5)
+        ax.set_xlabel("Hidden dimension index")
+        ax.set_title(f"{title}\nKurtosis: {k:.0f}", fontsize=10)
+        ax.legend(loc="upper right", fontsize=7)
+    axes[0].set_ylabel("Activation value")
+
+    delta = 100.0 * (kurt_sn - kurt_base) / abs(kurt_base) if kurt_base else float("nan")
+    fig.suptitle(
+        f"layers.{layer_idx}.{name} input (per-channel) - kurtosis {kurt_base:.0f} -> "
+        f"{kurt_sn:.0f} ({delta:+.1f}%)", fontsize=11,
     )
     plt.tight_layout()
     plt.savefig(out_path, dpi=200)
@@ -633,6 +688,12 @@ def main() -> None:
                 os.path.join(layer_dir, "down_proj_token_dist.png"),
                 i, "mlp.down_proj",
             )
+            if ptq_args.sn_channel_dist:
+                plot_channel_distribution(
+                    detail_base[down], detail_sn[down], kurt_base[down], kurt_sn[down],
+                    os.path.join(layer_dir, "down_proj_channel_dist.png"),
+                    i, "mlp.down_proj", percentiles=ptq_args.sn_channel_percentiles,
+                )
         log.info(f"Wrote figures for layer {i} -> {layer_dir}")
 
     # Headline number: the paper's claim is specifically about the down_proj input.
