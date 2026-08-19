@@ -251,6 +251,20 @@ def train() -> None:
                 act_path = os.path.join(save_path,"Act")
                 draw_utils.draw_activations(model,act_path,ptq_args,testloader)
 
+            if ptq_args.residual_norm_check:
+                res_path = os.path.join(save_path,"ResidualNorm")
+                draw_utils.draw_residual_norms(model,res_path,ptq_args,testloader)
+
+            if ptq_args.norm_check:
+                # Saved at figures/<net>/Normalization (not under the transform subdir).
+                norm_path = os.path.join(ptq_args.distribution_dir, "Normalization")
+                draw_utils.draw_norm_distributions(model, norm_path, ptq_args)
+
+            if ptq_args.norm_prepost_check:
+                # figures/<net>/Normalization_PrePost/{Kurtosis, Box Plot, 3d plot}/
+                prepost_path = os.path.join(ptq_args.distribution_dir, "Normalization_PrePost")
+                draw_utils.draw_norm_prepost(model, prepost_path, ptq_args, testloader)
+
 
         # dist.barrier()
 

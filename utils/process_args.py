@@ -485,6 +485,10 @@ def parser_gen():
     # Outlier_check Arguments
     parser.add_argument("--weight_check",action=argparse.BooleanOptionalAction,default=False,help="Whether to Store Weight data for profiling")
     parser.add_argument("--act_check",action=argparse.BooleanOptionalAction,default=False,help="Whether to Store activation data for profiling")
+    parser.add_argument("--residual_norm_check",action=argparse.BooleanOptionalAction,default=False,help="Dejavu Fig.5(c)(d) style plot: per-layer l2 norm of residual input ||X|| vs block output ||F(X)|| around Attention and MLP. Requires --draw.")
+    parser.add_argument("--residual_norm_samples",type=int,default=4,help="Number of random seqlen calibration windows used for the residual-norm plot")
+    parser.add_argument("--norm_check",action=argparse.BooleanOptionalAction,default=False,help="Plot the weight (gain) distribution of every RMSNorm to figures/<net>/Normalization/. Requires --draw. Best run without --rotate (rotation fuses norms into linears).")
+    parser.add_argument("--norm_prepost_check",action=argparse.BooleanOptionalAction,default=False,help="Compare activation stats BEFORE vs AFTER each RMSNorm: kurtosis x-y plot + box/3d plots, saved under figures/<net>/Normalization_PrePost/{Kurtosis,Box Plot,3d plot}/. Requires --draw. Use --layer_limit to cap box/3d plotting.")
     parser.add_argument("--distribution_dir",type=str,default=None,help="Directory for storing weight and activation distribution")
     parser.add_argument("--layer_limit",type=int, default=-1,help="Layer limit of distribution profiling")
     parser.add_argument("--draw",action=argparse.BooleanOptionalAction,default=False,help="Whether to Draw and Save png file")
