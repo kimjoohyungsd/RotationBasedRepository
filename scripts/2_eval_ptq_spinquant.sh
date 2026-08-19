@@ -80,8 +80,6 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --bf16 True \
 --save_safetensors False \
 --w_bits $2 \
---w_rtn \
---w_clip \
 --a_bits $3 \
 --k_bits $4 \
 --v_bits $4 \
@@ -92,7 +90,43 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 --v_groupsize 128 \
 --wikitext2 \
 --distribute \
+--online_r2 \
 --rotate \
+--w_rtn \
+--w_clip \
+--wikitext2 \
+--distribute \
+--wandb \
+--wandb_project "rotation-based-evaluation" \
+--wandb_id "jhk971114" \
+--dynamic_residual_scaling \
+
+
+
+CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
+--input_model $1 \
+--do_train False \
+--do_eval True \
+--per_device_eval_batch_size 4 \
+--model_max_length 2048 \
+--fp16 False \
+--bf16 True \
+--save_safetensors False \
+--w_bits $2 \
+--a_bits $3 \
+--k_bits $4 \
+--v_bits $4 \
+--k_asym \
+--v_asym \
+--a_asym \
+--k_groupsize 128 \
+--v_groupsize 128 \
+--wikitext2 \
+--distribute \
+--online_r2 \
+--rotate \
+--w_rtn \
+--w_clip \
 --wikitext2 \
 --distribute \
 --wandb \
@@ -102,6 +136,16 @@ CUDA_VISIBLE_DEVICES=6,7 python  ptq.py \
 
 
 
+# --smooth_quant \
+# --attention \
+# --diagonal_size 128 \
+# --smooth_quant \
+# --attention \
+# --permute \
+# --permute_mode 'massdiff' \
+# --diagonal_size 128 \
+# --w_rtn \
+# --w_clip \
 # Option 2 (Only with Model)
 # export NCCL_P2P_DISABLE="1"
 # export NCCL_IB_DISABLE="1"

@@ -43,10 +43,11 @@ def smoothing(model,args,act_scales):
     CLIPMIN = 1e-5 # 1e-5
     CLIPMAX = 1e4 # 1e4
 
-    dev=model.device
+    
     layers=model.model.layers
     for i in range(len(layers)): # 1. 각 DecoderLayer 단위로 forward pass 진행
         layer=layers[i]
+        dev = next(layer.parameters()).device
         scales={} # 계산된 보정값 저장소
         for name, module in layer.named_modules(): # 2. 각 Decoderlayer에 특정 Linear Layer의 Activation scales 값 추출
             if isinstance(module, nn.Linear):

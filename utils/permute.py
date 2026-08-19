@@ -14,7 +14,7 @@ def get_massdiff_indices(scores, block_size):
     hid_dim = scores.shape[0]
     if hid_dim <= block_size:
         return torch.arange(hid_dim)
-    _, indexes = torch.sort(scores, descending=True)
+    _, indexes = torch.sort(scores, descending=True) # 
     num_blocks = hid_dim // block_size
 
     # 각 블록의 누적 점수와 인덱스 리스트 초기화

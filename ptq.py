@@ -28,6 +28,47 @@ from eval_utils.modeling_qwen2 import Qwen2ForCausalLM # 왜 Eval_utils에서 mo
 from utils import data_utils, eval_utils, utils, draw_utils, parallel_utils
 from utils.process_args import process_args_ptq
 
+
+def distribution_subdir(ptq_args) -> str:
+    """Name the distribution-plot directory after *every* transform that ran.
+
+    The transforms are not mutually exclusive -- smoothing, permutation, rotation
+    and FPTQuant's Sn can all be applied in the same run -- so the name is a
+    ' + '-joined list in pipeline order (see eval_utils.main.ptq_model), e.g.
+
+        Smoothed (a=0.6) + Rotated (LieReSpinQuant) + Sn
+
+    A run with a single transform keeps the name it had before ("Rotated (SpinQuant)",
+    "Smoothed"), so previously written figure directories are unaffected.
+    """
+    parts = []
+
+    if getattr(ptq_args, "smooth_quant", False):
+        alpha = getattr(ptq_args, "alpha", None)
+        parts.append("Smoothed" if alpha is None else "Smoothed (a={})".format(alpha))
+
+    if getattr(ptq_args, "permute", False):
+        mode = getattr(ptq_args, "permute_mode", None)
+        parts.append("Permuted" if mode is None else "Permuted ({})".format(mode))
+
+    if getattr(ptq_args, "rotate", False):
+        if getattr(ptq_args, "lierespinquant", False):
+            flavor = "LieReSpinQuant r={}".format(getattr(ptq_args, "lie_rank", 32))
+        elif getattr(ptq_args, "respinquant", False):
+            rank = getattr(ptq_args, "residual_rank", 32)
+            flavor = "ReSpinQuant r={}".format(rank)
+        elif getattr(ptq_args, "optimized_rotation_path", None):
+            flavor = "SpinQuant"
+        else:
+            flavor = getattr(ptq_args, "rotate_mode", "hadamard")
+        parts.append("Rotated ({})".format(flavor))
+
+    if getattr(ptq_args, "dynamic_residual_scaling", False):
+        parts.append("Sn")
+
+    return " + ".join(parts) if parts else "Baseline"
+
+
 from datasets import load_dataset
 
 
@@ -192,14 +233,8 @@ def train() -> None:
 
             os.makedirs(ptq_args.distribution_dir, exist_ok=True)
 
-            save_path = ptq_args.distribution_dir
-            if ptq_args.rotate:
-                if ptq_args.optimized_rotation_path:
-                    save_path = os.path.join(save_path,"Rotated (SpinQuant)")
-                else:
-                    save_path = os.path.join(save_path,"Rotated ({})".format(ptq_args.rotate_mode))
-            elif ptq_args.smooth_quant:
-                save_path = os.path.join(save_path,"Smoothed")
+            save_path = os.path.join(
+                ptq_args.distribution_dir, distribution_subdir(ptq_args))
 
             if ptq_args.weight_check:
 
