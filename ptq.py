@@ -98,6 +98,9 @@ def train() -> None:
     if ptq_args.draw:
         dtype = torch.float16
 
+    if ptq_args.dynamic_residual_scaling:
+        dtype = torch.float32
+
     device_map = "auto" if ptq_args.distribute else None
     n_gpus = torch.cuda.device_count()
 

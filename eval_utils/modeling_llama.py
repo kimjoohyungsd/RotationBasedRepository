@@ -890,14 +890,14 @@ class LlamaSdpaAttention(LlamaAttention):
         attn_output = attn_output.view(bsz, q_len, -1)
 
         # FPTQuant Sn: see LlamaAttention.forward for the input-vs-output placement.
-        sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
-        if residual_scale is not None and not sn_after:
-            # residual_scale is carried in fp32; round it down only here, at its single
-            # point of use, instead of compounding bf16/fp16 rounding across every layer.
-            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        # sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
+        # if residual_scale is not None and not sn_after:
+        #     # residual_scale is carried in fp32; round it down only here, at its single
+        #     # point of use, instead of compounding bf16/fp16 rounding across every layer.
+        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         attn_output = self.o_proj(attn_output)
-        if sn_after:
+        if residual_scale is not None:
             # o_proj has a bias: the scale belongs on the block output.
             attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
@@ -1044,18 +1044,18 @@ class LlamaDecoderLayer(nn.Module):
                 (residual.float() @ self.Q_ffn) @ self.M_ffn
             ) @ self.Q_ffn.t()
             residual = residual.to(hidden_states.dtype)
-        if residual_scale is not None:
-            # No "next layer's input_layernorm" is reachable from inside this layer's
-            # forward, but every LlamaRMSNorm in a fused model shares the same eps and
-            # weight=1, so this layer's own input_layernorm is reused purely for its rsqrt
-            # (not semantically as "this layer's attention norm"). The next layer applying
-            # its own input_layernorm to this already-unit-RMS result is a harmless no-op.
-            hidden_states, inv_rms = self.input_layernorm(
-                residual + hidden_states, return_scale=True
-            )
-            residual_scale = residual_scale * inv_rms
-        else:
-            hidden_states = residual + hidden_states
+        # if residual_scale is not None:
+        #     # No "next layer's input_layernorm" is reachable from inside this layer's
+        #     # forward, but every LlamaRMSNorm in a fused model shares the same eps and
+        #     # weight=1, so this layer's own input_layernorm is reused purely for its rsqrt
+        #     # (not semantically as "this layer's attention norm"). The next layer applying
+        #     # its own input_layernorm to this already-unit-RMS result is a harmless no-op.
+        #     hidden_states, inv_rms = self.input_layernorm(
+        #         residual + hidden_states, return_scale=True
+        #     )
+        #     residual_scale = residual_scale * inv_rms
+        # else:
+        hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
 
