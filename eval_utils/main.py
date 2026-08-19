@@ -64,7 +64,7 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
     # fuse_norm_utils.fuse_layer_norms(model)
     if args.rotate and not args.deactivate_r1 or args.dynamic_residual_scaling:
         fuse_norm_utils.fuse_layer_norms(model) #
-        log.info("LayerNorm Fusion Applied For R1 Transform")
+        log.info("LayerNorm Fusion Applied For R1 Transform or dynamic_residual_scaling")
     
     if args.rotate:
         log.info("R1: {}, R2: {}, R3: {}, R4: {}".format(
