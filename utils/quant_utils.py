@@ -15,6 +15,7 @@ import transformers
 
 from train_utils.quant_linear import QuantizeLinear
 from utils import hadamard_utils
+from utils.mxfp4 import quantize_mx_fp4
 from utils.utils import HadamardTransform, cleanup_memory
 
 
@@ -105,6 +106,9 @@ class ActQuantizer(torch.nn.Module):
         x_dtype = x.dtype
         if self.bits == 16:
             return x
+        if getattr(self, "mxfp4", False):
+            # MXFP4: shared E8M0 scale per mx_block elements along the hidden dim.
+            return quantize_mx_fp4(x, block=self.mx_block, axis=-1).to(x_dtype)
         elif self.sym:
             return STEQuantize.apply(x, self.scale, self.maxq).to(x_dtype)
         return AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq).to(x_dtype)
@@ -117,13 +121,16 @@ class ActQuantizer(torch.nn.Module):
             return asym_quant(x, self.scale, self.zero, self.maxq)
 
     def configure(
-        self, bits: int, groupsize: int = -1, sym: bool = False, clip_ratio: float = 1.0
+        self, bits: int, groupsize: int = -1, sym: bool = False, clip_ratio: float = 1.0,
+        mxfp4: bool = False, mx_block: int = 32,
     ) -> None:
         _, self.maxq = get_minq_maxq(bits, sym)
         self.bits = bits
         self.groupsize = groupsize
         self.sym = sym
         self.clip_ratio = clip_ratio
+        self.mxfp4 = mxfp4
+        self.mx_block = mx_block
         assert (
             self.clip_ratio <= 1 and self.clip_ratio > 0
         ), "Clip ratio should be in (0, 1]"
@@ -154,6 +161,9 @@ class ActQuantizer(torch.nn.Module):
 
     def find_params(self, x) -> None:
         if self.bits == 16:
+            return
+        if getattr(self, "mxfp4", False):
+            # Scales are computed per-block inside quantize_mx_fp4 at forward time.
             return
 
         dev = x.device
@@ -354,6 +364,8 @@ class WeightQuantizer(torch.nn.Module):
         grid: int = 100,
         maxshrink: float = 0.8,
         weight_groupsize: int = -1,
+        mxfp4: bool = False,
+        mx_block: int = 32,
     ) -> None:
         self.bits = bits
         self.perchannel = perchannel
@@ -364,6 +376,8 @@ class WeightQuantizer(torch.nn.Module):
         self.grid = grid
         self.maxshrink = maxshrink
         self.weight_groupsize = weight_groupsize
+        self.mxfp4 = mxfp4
+        self.mx_block = mx_block
         if sym:
             self.maxq = torch.tensor(2 ** (bits - 1) - 1)
         else:
@@ -429,6 +443,10 @@ class WeightQuantizer(torch.nn.Module):
 
     def find_params(self, x) -> None: # [out_dim,in_dim]
         if self.bits == 16:
+            return
+        if getattr(self, "mxfp4", False):
+            # Per-block E8M0 scales are computed inside fake_quantize; mark ready.
+            self.scale = torch.ones(1, device=x.device)
             return
         dev = x.device
         self.maxq = self.maxq.to(dev)
@@ -518,6 +536,9 @@ class WeightQuantizer(torch.nn.Module):
 
     # Return int value and scale in addtional to fake quantized weight
     def fake_quantize(self, x):
+        if getattr(self, "mxfp4", False) and self.bits < 16:
+            # MXFP4 weights: shared E8M0 scale per mx_block along the input dim (last).
+            return quantize_mx_fp4(x, block=self.mx_block, axis=-1).to(x.dtype), None, None
         if self.percolumn:
             x=x.transpose(1,0)
         x_dtype = x.dtype

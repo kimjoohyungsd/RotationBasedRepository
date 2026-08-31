@@ -662,6 +662,8 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
                 sym=not (args.w_asym),
                 mse=args.w_clip,
                 weight_groupsize=w_groupsize,
+                mxfp4=getattr(args, "mxfp4", False) and layer_weight_bits < 16,
+                mx_block=getattr(args, "mx_block", 32),
             )
             W = subset[name].weight.data
             quantizer.find_params(W)

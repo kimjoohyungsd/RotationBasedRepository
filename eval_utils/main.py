@@ -267,6 +267,8 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
                 groupsize=layer_groupsize,
                 sym=layer_a_sym,
                 clip_ratio=layer_a_clip,
+                mxfp4=getattr(args, "mxfp4", False) and layer_input_bits < 16,
+                mx_block=getattr(args, "mx_block", 32),
             )
 
     if args.k_bits < 16:

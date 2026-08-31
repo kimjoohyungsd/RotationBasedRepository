@@ -229,6 +229,21 @@ def parser_gen():
         default=False,
         help="Apply Hadamard rotation in FP32 (default: False)",
     )
+    # MXFP4 (OCP microscaling FP4) quantization: E2M1 elements + shared E8M0 scale per
+    # mx_block. When set, weights and activations use MXFP4 instead of integer quant
+    # (set --w_bits 4 --a_bits 4 --w_rtn to select the 4-bit RTN MXFP4 path).
+    parser.add_argument(
+        "--mxfp4",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use MXFP4 (E2M1 + per-block E8M0 scale) for weights and activations.",
+    )
+    parser.add_argument(
+        "--mx_block",
+        type=int,
+        default=32,
+        help="MXFP4 microscaling block size (OCP default: 32).",
+    )
     # Rotation-training checkpointing (optimize_rotation.py). HF Trainer checkpoints
     # dump the FULL model + optimizer state (tens of GB each) into output_dir, which
     # can fill a small disk mid-run and waste the whole training. Default False so a

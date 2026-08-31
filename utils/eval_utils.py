@@ -162,7 +162,11 @@ def evaluator_single_gpu(model, testenc, dev, args):
     for i in range(nbatches):
         hidden_states = inps[i]
         if model.model.norm is not None:
-            hidden_states = model.model.norm(hidden_states)
+            # LlamaRMSNorm.forward returns (hidden_states, scale) unconditionally
+            # (FPTQuant Sn threads the scale); unwrap here since this call site does
+            # not use the scale, otherwise lm_head receives a tuple.
+            norm_out = model.model.norm(hidden_states)
+            hidden_states = norm_out[0] if isinstance(norm_out, tuple) else norm_out
         lm_logits = model.lm_head(hidden_states) # lm_logits의 shape [batch,seq_len,hidden_dim]
         shift_logits = lm_logits[:, :-1, :] # [batch,seq_len-1,hidden_dim]
         shift_labels = input_ids[i][:, 1:] # [batch,seq_len-1]
