@@ -108,6 +108,12 @@ def parser_gen():
     parser.add_argument("--alpha", type=float, default=0.6,help='migration strength between activation and weight')
     parser.add_argument("--attention",action=argparse.BooleanOptionalAction,default=False,
                         help='Whether to apply smooting technique of attention output vector')
+    # LayerNorm Fusion
+    parser.add_argument(
+        '--norm_fusion',
+        action=argparse.BooleanOptionalAction,default=False,
+        help='Whether to fuse layernorm weights to neighboring linear layers'
+    )
     # Permutation Arguments
     parser.add_argument(
         '--permute',

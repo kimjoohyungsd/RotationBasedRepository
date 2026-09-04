@@ -416,18 +416,18 @@ class LlamaMLP(nn.Module):
             # down_proj input quantizer see the reduced-outlier activation.
             intermediate_states = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
             # sn_after = residual_scale is not None and _sn_needs_output_scaling(self.down_proj)
-            # if residual_scale is not None and not sn_after:
-            #     # residual_scale is carried in fp32 (see LlamaRMSNorm.forward); round it to
-            #     # the activation's dtype only here, at its single point of use, instead of
-            #     # letting bf16/fp16 rounding compound across every layer it's threaded
-            #     # through.
-            #     intermediate_states = intermediate_states * residual_scale.to(
-            #         intermediate_states.dtype
-            #     )
-            down_proj = self.down_proj(intermediate_states)
             if residual_scale is not None:
-                # down_proj has a bias: the scale belongs on the block output.
-                down_proj = down_proj * residual_scale.to(down_proj.dtype)
+                # residual_scale is carried in fp32 (see LlamaRMSNorm.forward); round it to
+                # the activation's dtype only here, at its single point of use, instead of
+                # letting bf16/fp16 rounding compound across every layer it's threaded
+                # through.
+                intermediate_states = intermediate_states * residual_scale.to(
+                    intermediate_states.dtype
+                )
+            down_proj = self.down_proj(intermediate_states)
+            # if residual_scale is not None:
+            #     # down_proj has a bias: the scale belongs on the block output.
+            #     down_proj = down_proj * residual_scale.to(down_proj.dtype)
 
         return down_proj
 
@@ -607,10 +607,10 @@ class LlamaAttention(nn.Module):
         # same as scaling o_proj's *input*, which additionally exposes the reduced-
         # outlier activation to o_proj's input quantizer -- see _sn_needs_output_scaling.
         # sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
-        # if residual_scale is not None and not sn_after:
-        #     # residual_scale is carried in fp32; round it down only here, at its single
-        #     # point of use, instead of compounding bf16/fp16 rounding across every layer.
-        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        if residual_scale is not None and not sn_after:
+            # residual_scale is carried in fp32; round it down only here, at its single
+            # point of use, instead of compounding bf16/fp16 rounding across every layer.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         if self.config.pretraining_tp > 1:
             attn_output = attn_output.split(
@@ -628,9 +628,9 @@ class LlamaAttention(nn.Module):
         else:
             attn_output = self.o_proj(attn_output)
             
-        if residual_scale is not None:
-            # o_proj has a bias: the scale belongs on the block output.
-            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        # if residual_scale is not None:
+        #     # o_proj has a bias: the scale belongs on the block output.
+        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         if not output_attentions:
             attn_weights = None
@@ -765,15 +765,15 @@ class LlamaFlashAttention2(LlamaAttention):
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
         # FPTQuant Sn: see LlamaAttention.forward for the input-vs-output placement.
-        sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
-        if residual_scale is not None and not sn_after:
+        # sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
+        if residual_scale is not None:
             # residual_scale is carried in fp32; round it down only here, at its single
             # point of use, instead of compounding bf16/fp16 rounding across every layer.
             attn_output = attn_output * residual_scale.to(attn_output.dtype)
         attn_output = self.o_proj(attn_output)
-        if sn_after:
-            # o_proj has a bias: the scale belongs on the block output.
-            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        # if sn_after:
+        #     # o_proj has a bias: the scale belongs on the block output.
+        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         if not output_attentions:
             attn_weights = None
@@ -891,15 +891,15 @@ class LlamaSdpaAttention(LlamaAttention):
 
         # FPTQuant Sn: see LlamaAttention.forward for the input-vs-output placement.
         # sn_after = residual_scale is not None and _sn_needs_output_scaling(self.o_proj)
-        # if residual_scale is not None and not sn_after:
-        #     # residual_scale is carried in fp32; round it down only here, at its single
-        #     # point of use, instead of compounding bf16/fp16 rounding across every layer.
-        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        if residual_scale is not None:
+            # residual_scale is carried in fp32; round it down only here, at its single
+            # point of use, instead of compounding bf16/fp16 rounding across every layer.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         attn_output = self.o_proj(attn_output)
-        if residual_scale is not None:
-            # o_proj has a bias: the scale belongs on the block output.
-            attn_output = attn_output * residual_scale.to(attn_output.dtype)
+        # if residual_scale is not None:
+        #     # o_proj has a bias: the scale belongs on the block output.
+        #     attn_output = attn_output * residual_scale.to(attn_output.dtype)
 
         return attn_output, None, past_key_value
 

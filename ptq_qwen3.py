@@ -23,6 +23,9 @@ def train() -> None:
     model_args, training_args, ptq_args = process_args_ptq()
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
 
+    wandb_run = utils.setup_wandb(model_args.input_model, ptq_args)
+    if wandb_run is not None:
+        log.info("wandb run: {} ({})".format(wandb_run.name, wandb_run.url))
     config = transformers.AutoConfig.from_pretrained( 
         model_args.input_model, token=model_args.access_token
     )

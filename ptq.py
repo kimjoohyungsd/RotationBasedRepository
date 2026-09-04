@@ -89,20 +89,35 @@ def train() -> None:
     config = transformers.AutoConfig.from_pretrained(
         model_args.input_model, token=model_args.access_token
     )
-    # Llama v3.2 specific: Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
-    process_word_embeddings = False
-    if config.tie_word_embeddings:
-        config.tie_word_embeddings = False
-        process_word_embeddings = True
+    # SpinQuant is not compatible with tied word embeddings: lm_head has to be an
+    # independent weight so R1 / fuse_layer_norms can transform it on its own. The
+    # untie is done AFTER from_pretrained (see below) -- flipping
+    # config.tie_word_embeddings to False *before* the load turns lm_head.weight
+    # into a key with no entry in a tied checkpoint, which low_cpu_mem_usage /
+    # device_map then leaves stranded on the 'meta' device.
+    process_word_embeddings = bool(config.tie_word_embeddings)
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
     if ptq_args.draw:
         dtype = torch.float16
 
-    if ptq_args.dynamic_residual_scaling:
-        dtype = torch.float32
+    # if ptq_args.dynamic_residual_scaling:
+    #     dtype = torch.float32
 
     device_map = "auto" if ptq_args.distribute else None
     n_gpus = torch.cuda.device_count()
+
+    # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
+    # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
+    max_memory = {}  # 빈 딕셔너리로 초기화
+    if ptq_args.distribute:
+        n_gpus = torch.cuda.device_count()
+        # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
+        max_memory[0] = "15GiB" 
+        for i in range(1, n_gpus):
+            # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
+            max_memory[i] = "20GiB" 
+    else:
+        max_memory = None # 분산 모드가 아닐 때는 None 전달
 
     # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
     # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
@@ -147,6 +162,7 @@ def train() -> None:
 
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
+
 
     # --gptq_cpu_offload keeps the model on CPU: gptq_fwrd_distribute streams one layer
     # at a time to a GPU, so the full 70B model must NOT be pinned to a single GPU here.

@@ -96,6 +96,15 @@ def evaluator_single_gpu(model, testenc, dev, args):
         def __init__(self, module):
             super().__init__()
             self.module = module
+            # Newer transformers (masking_utils.create_causal_mask /
+            # create_sliding_window_causal_mask, e.g. the Qwen3 modeling code)
+            # inspect model.model.layers[0].attention_type *before* calling
+            # into the layer, to pick the right mask kind -- so the wrapper
+            # standing in for layers[0] here needs to carry it through too,
+            # or that lookup raises AttributeError before Catcher.forward
+            # ever runs (Llama's own forward doesn't need this, hence the
+            # getattr default).
+            self.attention_type = getattr(module, "attention_type", "full_attention")
 
         def forward(self, inp, **kwargs):
             inps[cache["i"]] = inp

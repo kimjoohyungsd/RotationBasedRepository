@@ -46,6 +46,7 @@ MODELS = {
     "Llama-2-7b-hf": ("meta-llama/Llama-2-7b-hf", "llama"),
     "Llama-3.1-8B": ("meta-llama/Llama-3.1-8B", "llama"),
     "Qwen3-8B": ("Qwen/Qwen3-8B", "qwen3"),
+    "Qwen3-14B": ("Qwen/Qwen3-14B","qwen3")
 }
 LAYER_RE = re.compile(r"^model\.layers\.(\d+)\.(.+)$")
 

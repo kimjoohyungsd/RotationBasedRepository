@@ -35,12 +35,23 @@ class Qwen3RMSNorm(nn.Module):
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, return_scale: bool = False):
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
-        hidden_states = hidden_states * torch.rsqrt(variance + self.variance_epsilon)
-        return self.weight * hidden_states.to(input_dtype)
+        # rsqrt: single fused reciprocal-sqrt (one rounding); see modeling_llama.py.
+        inv_rms = torch.rsqrt(variance + self.variance_epsilon)
+        hidden_states = hidden_states * inv_rms
+        out = self.weight * hidden_states.to(input_dtype)
+        if return_scale:
+            # FPTQuant Sn (--dynamic_residual_scaling): the running per-token
+            # residual scale is threaded across every block of every layer, so
+            # inv_rms is returned in fp32 (NOT input_dtype) and rounded only at
+            # each actual point of use -- see modeling_llama.py's LlamaRMSNorm
+            # for the full rationale. Only valid once fuse_layer_norms has set
+            # self.weight to all-ones (guaranteed under --rotate; see ptq_model).
+            return out, inv_rms
+        return out
 
     def extra_repr(self):
         return f"{tuple(self.weight.shape)}, eps={self.variance_epsilon}"
@@ -57,8 +68,17 @@ class Qwen3MLP(nn.Module):
         self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
         self.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, x):
-        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+    def forward(self, x, residual_scale=None):
+        intermediate_states = self.act_fn(self.gate_proj(x)) * self.up_proj(x)
+        if residual_scale is not None:
+            # FPTQuant Sn: scale the SwiGLU intermediate (down_proj's input, the
+            # worst-outlier quantizer location in the block) rather than the
+            # block output. down_proj has no bias, so down_proj(s*h) == s*down_proj(h)
+            # -- exactly equivalent, but the down_proj input quantizer now sees the
+            # reduced-outlier activation. fp32 scale rounded to activation dtype
+            # only here, at its single point of use.
+            intermediate_states = intermediate_states * residual_scale.to(intermediate_states.dtype)
+        down_proj = self.down_proj(intermediate_states)
         return down_proj
 
 
@@ -171,6 +191,7 @@ class Qwen3Attention(nn.Module):
         attention_mask: Optional[torch.Tensor],
         past_key_values: Optional[Cache] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        residual_scale: Optional[torch.Tensor] = None,
         **kwargs: Unpack[FlashAttentionKwargs],
     ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
         input_shape = hidden_states.shape[:-1]
@@ -205,6 +226,10 @@ class Qwen3Attention(nn.Module):
         )
 
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+        if residual_scale is not None:
+            # FPTQuant Sn: scale o_proj's input (no bias -> o_proj(s*x) == s*o_proj(x)),
+            # so the o_proj input quantizer sees the reduced-outlier activation.
+            attn_output = attn_output * residual_scale.to(attn_output.dtype)
         attn_output = self.o_proj(attn_output)
         return attn_output, attn_weights
 
@@ -231,10 +256,21 @@ class Qwen3DecoderLayer(GradientCheckpointingLayer):
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+        residual_scale: Optional[torch.Tensor] = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> torch.Tensor:
+        """FPTQuant Sn (--dynamic_residual_scaling): when ``residual_scale`` is not
+        None it is the running per-token scale (batch, seq, 1); this layer returns
+        ``(hidden_states, residual_scale)`` for the caller to thread into the next
+        layer. When None the layer behaves exactly as stock Qwen3 and returns a
+        bare tensor. Mirrors eval_utils.modeling_llama.LlamaDecoderLayer.forward."""
         residual = hidden_states
-        hidden_states = self.input_layernorm(hidden_states)
+        if residual_scale is not None:
+            hidden_states, inv_rms = self.input_layernorm(hidden_states, return_scale=True)
+            residual = hidden_states  # Sn: the residual stream carries the renormalized vector
+            residual_scale = residual_scale * inv_rms
+        else:
+            hidden_states = self.input_layernorm(hidden_states)
         # Self Attention
         hidden_states, _ = self.self_attn(
             hidden_states=hidden_states,
@@ -244,15 +280,23 @@ class Qwen3DecoderLayer(GradientCheckpointingLayer):
             use_cache=use_cache,
             cache_position=cache_position,
             position_embeddings=position_embeddings,
+            residual_scale=residual_scale,
             **kwargs,
         )
         hidden_states = residual + hidden_states
 
         # Fully Connected
         residual = hidden_states
-        hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states = self.mlp(hidden_states)
+        if residual_scale is not None:
+            hidden_states, inv_rms = self.post_attention_layernorm(hidden_states, return_scale=True)
+            residual = hidden_states
+            residual_scale = residual_scale * inv_rms
+        else:
+            hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states, residual_scale=residual_scale)
         hidden_states = residual + hidden_states
+        if residual_scale is not None:
+            return hidden_states, residual_scale
         return hidden_states
 
 
@@ -385,8 +429,17 @@ class Qwen3Model(Qwen3PreTrainedModel):
         # create position embeddings to be shared across the decoder layers
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
+        # FPTQuant Sn (pseudodynamic residual scaling): S_0 = 1 (embedding output
+        # enters layer 0 unscaled). fp32, shape (batch, seq, 1). See modeling_llama.py.
+        sn = getattr(self.config, "dynamic_residual_scaling", False)
+        residual_scale = (
+            torch.ones(hidden_states.shape[:-1] + (1,), dtype=torch.float32,
+                       device=hidden_states.device)
+            if sn else None
+        )
+
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            hidden_states = decoder_layer(
+            layer_out = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask_mapping[decoder_layer.attention_type],
                 position_ids=position_ids,
@@ -394,9 +447,17 @@ class Qwen3Model(Qwen3PreTrainedModel):
                 use_cache=use_cache,
                 cache_position=cache_position,
                 position_embeddings=position_embeddings,
+                residual_scale=residual_scale,
                 **kwargs,
             )
+            if sn:
+                hidden_states, residual_scale = layer_out
+            else:
+                hidden_states = layer_out
 
+        # RMSNorm is per-token scale-invariant, so norm(hidden_states) already
+        # equals norm(unscaled residual stream) -- the accumulated residual_scale
+        # is not needed past the last block.
         hidden_states = self.norm(hidden_states)
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,

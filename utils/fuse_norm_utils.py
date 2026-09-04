@@ -21,7 +21,7 @@ def fuse_ln_linear(
     for linear in linear_layers:
         linear_dtype = linear.weight.dtype
         linear_device = linear.weight.device
-
+      
         if cpu_offload:
             W_ = linear.weight.data.cpu().double()
             linear.weight.data = (W_ * layernorm.weight.data.cpu().double()).to(linear_device).to(linear_dtype)
