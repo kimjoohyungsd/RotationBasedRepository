@@ -106,18 +106,6 @@ def train() -> None:
     device_map = "auto" if ptq_args.distribute else None
     n_gpus = torch.cuda.device_count()
 
-    # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
-    # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
-    max_memory = {}  # 빈 딕셔너리로 초기화
-    if ptq_args.distribute:
-        n_gpus = torch.cuda.device_count()
-        # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
-        max_memory[0] = "15GiB" 
-        for i in range(1, n_gpus):
-            # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
-            max_memory[i] = "20GiB" 
-    else:
-        max_memory = None # 분산 모드가 아닐 때는 None 전달
 
     # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
     # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
@@ -125,10 +113,10 @@ def train() -> None:
     if ptq_args.distribute:
         n_gpus = torch.cuda.device_count()
         # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
-        max_memory[0] = "10GiB" 
+        max_memory[0] = "14GiB" 
         for i in range(1, n_gpus):
             # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
-            max_memory[i] = "10GiB" 
+            max_memory[i] = "14GiB" 
     else:
         max_memory = None # 분산 모드가 아닐 때는 None 전달
 

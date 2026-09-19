@@ -1,4 +1,3 @@
-
 #!/bin/bash
 cleanup() {
     echo ""
@@ -10,7 +9,9 @@ trap cleanup SIGINT
 
 # MODELS=("meta-llama/Llama-2-7b-hf" "meta-llama/Llama-3.1-8B" )
 # MODELS=( "meta-llama/Llama-3.1-8B" )
-MODELS=("Qwen/Qwen3-8B" )
+# MODELS=("Qwen/Qwen3-8B" )
+
+MODELS=('Qwen/Qwen3-14B')
 COMMON_ARGS=(
     --do_train False
     --do_eval True
@@ -29,6 +30,9 @@ COMMON_ARGS=(
     --mxfp4
     --a_asym
 
+    # Norm Fusion
+    --norm_fusion
+
     # KV Cache
     --k_bits 16
     --v_bits 16
@@ -41,11 +45,6 @@ COMMON_ARGS=(
     --wikitext2
     --distribute
 
-    # Rotation
-    --rotate
-    --diagonal
-    --diagonal_size 32
-
     # WandB
     --wandb
     --wandb_project "rotation-based-evaluation"
@@ -53,12 +52,7 @@ COMMON_ARGS=(
 
 for MODEL_PATH in "${MODELS[@]}"; do
 
-    MODEL_NAME="${MODEL_PATH##*/}"
-
-    echo "======================================================"
-    echo "Model: ${MODEL_PATH}"
-    echo "======================================================"
-
+    MODEL_NAME="${MODEL_PATH}"
     if [[ "$MODEL_PATH" == *"Qwen3"* ]] || [[ "$MODEL_NAME" == *"Qwen3"* ]]; then
         PY_SCRIPT="ptq_qwen3.py"
         echo ">>> Qwen3 model detected. Using $PY_SCRIPT"
@@ -66,17 +60,23 @@ for MODEL_PATH in "${MODELS[@]}"; do
         PY_SCRIPT="ptq.py"
         echo ">>> Standard model detected. Using $PY_SCRIPT"
     fi
-    echo "[Experiment 1] Dynamic Residual Scaling"
 
-    CUDA_VISIBLE_DEVICES=0,1 python $PY_SCRIPT \
-        --input_model "$MODEL_PATH" \
-        "${COMMON_ARGS[@]}" \
-        --dynamic_residual_scaling &
-    
-    echo "[Experiment 2] X Dynamic Residual Scaling"
+    echo "======================================================"
+    echo "Model: ${MODEL_PATH}"
+    echo "======================================================"
 
-    CUDA_VISIBLE_DEVICES=2,3 python $PY_SCRIPT \
+
+    echo "[Experiment 1] LayerNormFusion end-to-end"
+
+    CUDA_VISIBLE_DEVICES=0,1,2,3 python $PY_SCRIPT \
         --input_model "$MODEL_PATH" \
         "${COMMON_ARGS[@]}" &
+    
+    echo "[Experiment 2] Initial Layer Norm Fusion"
+
+    CUDA_VISIBLE_DEVICES=4,5,6,7 python $PY_SCRIPT \
+        --input_model "$MODEL_PATH" \
+        "${COMMON_ARGS[@]}" \
+        --norm_fusion_start_layer 20 &
 
 done

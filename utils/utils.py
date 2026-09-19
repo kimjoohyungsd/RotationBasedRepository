@@ -214,6 +214,10 @@ def setup_wandb(input_model,args):
         "per_column": getattr(args, "per_column", None),
         "smooth_quant": bool(getattr(args, "smooth_quant", False)),
         "rotate": bool(getattr(args, "rotate", False)),
+        "norm_fusion": bool(getattr(args, "norm_fusion", False)),
+        "norm_fusion_start_layer": getattr(args, "norm_fusion_start_layer", 0),
+        "mxfp4": bool(getattr(args, "mxfp4", False)),
+        "mx_block": getattr(args, "mx_block", None),
         "batch_size": args.lm_eval_batch_size,
         "seed": args.seed,
     }
@@ -234,6 +238,29 @@ def setup_wandb(input_model,args):
         config["smooth_alpha"] = args.alpha
         tags.append("smooth-quant")
         group_name += f"-smooth{args.alpha}"
+
+    # LayerNorm fusion (--norm_fusion): standalone RMSNorm-into-linear fold, so
+    # the fused / not-fused runs of scripts/35_layernorm_fusion.sh -- and the
+    # per-start-layer runs of scripts/36_layernorm_fusion_layerwise.sh -- don't
+    # collapse into the same wandb name/group.
+    if getattr(args, "norm_fusion", False):
+        _nf_start = getattr(args, "norm_fusion_start_layer", 0)
+        tags.append("norm-fusion")
+        group_name += "-normfusion"
+        if _nf_start:
+            tags.append(f"nf-start-{_nf_start}")
+            group_name += f"s{_nf_start}"
+    else:
+        tags.append("no-norm-fusion")
+
+    # MXFP4 (E2M1 + per-block E8M0 scale). Tag with the microscaling block size so
+    # mx_block sweeps (e.g. 32 vs 16) are distinguishable at a glance.
+    if getattr(args, "mxfp4", False):
+        tags.append("mxfp4")
+        tags.append(f"mxblock-{getattr(args, 'mx_block', 32)}")
+        group_name += f"-mxfp4b{getattr(args, 'mx_block', 32)}"
+    else:
+        tags.append("int-quant")
 
     if getattr(args, "rotate", False):
         config["rotate_mode"] = getattr(args, "rotate_mode", None)

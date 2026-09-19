@@ -41,7 +41,15 @@ def fuse_ln_linear(
             linear.bias.data = linear.bias.data.to(linear_dtype)
 
 
-def fuse_layer_norms(model):
+def fuse_layer_norms(model, start_layer: int = 0):
+    """Fold every RMSNorm's per-channel gain into the following linear(s) and
+    reset the gain to ones -- a lossless reparameterisation.
+
+    start_layer: only decoder layers with index >= start_layer are fused;
+    layers before it keep their input_layernorm / post_attention_layernorm gain
+    un-fused. 0 (default) fuses every decoder layer. The final
+    model.norm -> lm_head fusion is always applied regardless.
+    """
     kwargs = {"model": model}
     # Embedding fusion
     # for W in [model.model.embed_tokens]:
@@ -51,7 +59,9 @@ def fuse_layer_norms(model):
     layers = [layer for layer in model.model.layers]
 
     # Fuse the linear operations in Layernorm into the adjacent linear blocks.
-    for layer in layers:
+    for idx, layer in enumerate(layers):
+        if idx < start_layer:
+            continue
         # fuse the input layernorms into the linear layers
         fuse_ln_linear(
             layer.post_attention_layernorm, [layer.mlp.up_proj, layer.mlp.gate_proj]

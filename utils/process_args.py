@@ -114,6 +114,16 @@ def parser_gen():
         action=argparse.BooleanOptionalAction,default=False,
         help='Whether to fuse layernorm weights to neighboring linear layers'
     )
+    parser.add_argument(
+        '--norm_fusion_start_layer',
+        type=int, default=0,
+        help='With --norm_fusion, fuse only the decoder layers whose 0-based index '
+             'is >= this value; earlier layers keep their RMSNorm gain un-fused '
+             '(e.g. 11 -> leave layers 0..10 alone, fuse 11..). 0 (default) fuses '
+             'every layer. Ignored when fusion is forced by --rotate / '
+             '--dynamic_residual_scaling, which need every residual-path norm '
+             'fused to stay function-preserving.'
+    )
     # Permutation Arguments
     parser.add_argument(
         '--permute',

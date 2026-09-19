@@ -3,8 +3,8 @@
 the raw (un-fused, un-rotated) model as loaded from the checkpoint:
 
   1) per DecoderLayer -- all norm modules *within* one layer overlaid in one
-     histogram (input_layernorm, post_attention_layernorm, and for Qwen3
-     also self_attn.q_norm/k_norm), so you can compare them at that depth.
+     histogram (input_layernorm, post_attention_layernorm), so you can compare
+     them at that depth.
   2) per module type -- one module's weights pooled across *every* layer
      (e.g. every layer's input_layernorm together) into one histogram, so
      you can see how that specific module's distribution looks model-wide.
@@ -18,11 +18,16 @@ channels) -- this makes that visible across the whole model instead of one
 spot-checked layer.
 
 RMSNorm modules are discovered generically (any submodule whose class name
-contains "RMSNorm"), not hardcoded to input_layernorm/post_attention_layernorm,
-so Qwen3's per-head q_norm/k_norm are picked up automatically.
+contains "RMSNorm"), not hardcoded to input_layernorm/post_attention_layernorm.
+Qwen3's per-head self_attn.q_norm / self_attn.k_norm are RMSNorms too, but they
+sit on head_dim inside attention -- not on the residual stream -- and
+fuse_layer_norms never touches them, so they are irrelevant to the LayerNorm-
+fusion question this script is about and are EXCLUDED by default. Pass
+--include-qk-norm to keep them.
 
     python scripts/rmsnorm_weight_histograms.py
     python scripts/rmsnorm_weight_histograms.py --models Llama-2-7b-hf
+    python scripts/rmsnorm_weight_histograms.py --include-qk-norm
 
 Figures saved to <repo>/figures/rmsnorm_histograms/<model>/.
 """
@@ -49,6 +54,9 @@ MODELS = {
     "Qwen3-14B": ("Qwen/Qwen3-14B","qwen3")
 }
 LAYER_RE = re.compile(r"^model\.layers\.(\d+)\.(.+)$")
+# Qwen3 per-head norms (self_attn.q_norm / self_attn.k_norm): on head_dim inside
+# attention, never fused by fuse_layer_norms -> excluded unless --include-qk-norm.
+QK_NORM_RE = re.compile(r"(^|\.)(q_norm|k_norm)$")
 
 
 def load_model(hf_id: str, arch: str):
@@ -61,23 +69,28 @@ def load_model(hf_id: str, arch: str):
                                       low_cpu_mem_usage=True)
 
 
-def collect_rmsnorm_weights(model):
+def collect_rmsnorm_weights(model, include_qk_norm=False):
     """-> (per_layer, final_norms), where
     per_layer: {layer_idx: {module_name: 1D float32 numpy array}}
     final_norms: {module_name: 1D float32 numpy array}  (not under model.layers.*)
     module_name is the submodule path with the layer index stripped, e.g.
     "input_layernorm" or "self_attn.q_norm", so the same key groups a module
     type across every layer.
+
+    Qwen3's self_attn.q_norm / self_attn.k_norm are skipped unless
+    include_qk_norm=True (see QK_NORM_RE).
     """
     per_layer, final_norms = {}, {}
     for name, module in model.named_modules():
         if "RMSNorm" not in type(module).__name__:
             continue
-        w = module.weight.detach().float().cpu().numpy().reshape(-1)
         m = LAYER_RE.match(name)
+        module_name = m.group(2) if m else name
+        if not include_qk_norm and QK_NORM_RE.search(module_name):
+            continue
+        w = module.weight.detach().float().cpu().numpy().reshape(-1)
         if m:
-            layer_idx, module_name = int(m.group(1)), m.group(2)
-            per_layer.setdefault(layer_idx, {})[module_name] = w
+            per_layer.setdefault(int(m.group(1)), {})[module_name] = w
         else:
             final_norms[name] = w
     return per_layer, final_norms
@@ -102,10 +115,10 @@ def hist_panel(ax, series: dict, title: str, bins: int = 60):
     ax.grid(alpha=0.3)
 
 
-def run_model(model_name, hf_id, arch, out_root):
+def run_model(model_name, hf_id, arch, out_root, include_qk_norm=False):
     print(f"\n{'=' * 78}\n{model_name}\n{'=' * 78}")
     model = load_model(hf_id, arch)
-    per_layer, final_norms = collect_rmsnorm_weights(model)
+    per_layer, final_norms = collect_rmsnorm_weights(model, include_qk_norm=include_qk_norm)
     del model
 
     out_dir = os.path.join(out_root, model_name)
@@ -171,11 +184,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--models', nargs='+', default=list(MODELS.keys()), choices=list(MODELS.keys()))
     ap.add_argument('--out_root', default=os.path.join(HERE, 'figures', 'rmsnorm_histograms'))
+    ap.add_argument('--include-qk-norm', dest='include_qk_norm', action='store_true',
+                    help="keep Qwen3's self_attn.q_norm / self_attn.k_norm in the "
+                         "histograms (excluded by default: not on the residual stream, "
+                         "never touched by fuse_layer_norms).")
     args = ap.parse_args()
     os.makedirs(args.out_root, exist_ok=True)
     for model_name in args.models:
         hf_id, arch = MODELS[model_name]
-        run_model(model_name, hf_id, arch, args.out_root)
+        run_model(model_name, hf_id, arch, args.out_root, include_qk_norm=args.include_qk_norm)
 
 
 if __name__ == '__main__':
