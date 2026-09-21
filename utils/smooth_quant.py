@@ -30,6 +30,37 @@ def smooth_fc_fc(fc1,fc2,scales):
         fc1.weight.div_(scales.to(fc1.weight.device).view(-1,1))
         fc2.weight.mul_(scales.to(fc2.weight.device).view(1,-1))
 
+def smooth_v_o(v_proj,o_proj,scales,head_dim):
+    """Smooth the v_proj -> o_proj pair, with or without grouped-query attention.
+
+    scales has o_proj.in_features entries (one per attention-head channel), but v_proj only
+    has num_kv_heads * head_dim output channels: each kv head is shared by n_rep query heads
+    (repeat_kv), so o_proj input channel j = (g * n_rep + r) * head_dim + d reads v_proj output
+    channel g * head_dim + d. For GQA (e.g. Llama-3.1-8B: v_proj [1024,4096], o_proj [4096,4096])
+    the n_rep scales that share one v_proj channel are arithmetic-averaged into a single scale
+    s_v. v_proj rows are divided by s_v and o_proj columns are multiplied by s_v repeated over
+    the n_rep query heads (block-diagonal along the heads), which keeps the layer pair
+    function-preserving. Multiplying o_proj by the un-averaged scales would not.
+    """
+    if v_proj.out_features == o_proj.in_features: # MHA: one scale per channel
+        smooth_fc_fc(v_proj,o_proj,scales)
+        return
+
+    n_kv = v_proj.out_features // head_dim # Number of KV head
+    n_rep = o_proj.in_features // v_proj.out_features # Number of KV repetition
+    assert v_proj.out_features % head_dim == 0 and o_proj.in_features == n_kv * n_rep * head_dim, \
+        "v_proj {} / o_proj {} do not match head_dim {}".format(tuple(v_proj.weight.shape),tuple(o_proj.weight.shape),head_dim)
+
+    scales = scales.float().view(n_kv,n_rep,head_dim) # [Number of KV head, Repetition, Head Dim]
+    scales_v = scales.mean(dim=1)                                          # [n_kv, head_dim], averaged over the n_rep query heads
+    scales_o = scales_v.unsqueeze(1).expand(n_kv,n_rep,head_dim).reshape(-1)  # [n_kv*n_rep*head_dim], repeated back per query head
+    smooth_fc_fc_gqa(v_proj,o_proj,scales_v.reshape(-1),scales_o)
+
+def smooth_fc_fc_gqa(fc1,fc2,scales_1,scales_2):
+    with torch.no_grad():
+        fc1.weight.div_(scales_1.to(device=fc1.weight.device,dtype=fc1.weight.dtype).view(-1,1))
+        fc2.weight.mul_(scales_2.to(device=fc2.weight.device,dtype=fc2.weight.dtype).view(1,-1))
+
 def smoothing(model,args,act_scales):
     pairs = { # "레이어 그룹핑 가이드"
             "q_proj":"qkv", # q_proj의 통계치를 보고 'qkv'라는 이름의 스케일을 만든다
@@ -64,4 +95,5 @@ def smoothing(model,args,act_scales):
         smooth_ln_fcs(layer.post_attention_layernorm,[layer.mlp.gate_proj,layer.mlp.up_proj],scales["fc1"]) # post_attention_layernorm, mlp.gate_proj,mlp.up_proj의 적용
         smooth_fc_fc(layer.mlp.up_proj,layer.mlp.down_proj,scales["down"])
         if (args.attention):
-            smooth_fc_fc(layer.self_attn.v_proj,layer.self_attn.o_proj,scales["out"])       
+            head_dim = getattr(model.config,"head_dim",None) or model.config.hidden_size // model.config.num_attention_heads
+            smooth_v_o(layer.self_attn.v_proj,layer.self_attn.o_proj,scales["out"],head_dim)       

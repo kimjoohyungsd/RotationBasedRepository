@@ -19,12 +19,15 @@ cleanup() {
 trap cleanup SIGINT
 
 # "<HF model id>|<CUDA_VISIBLE_DEVICES>"
-JOBS=(
-    "meta-llama/Llama-2-7b-hf|0,1"
-    "meta-llama/Llama-2-13b-hf|2,3,4"
-    "meta-llama/Llama-3.1-8B|5,6"
-)
+# JOBS=(
+#     "meta-llama/Llama-2-7b-hf|4,5"
+#     "meta-llama/Llama-2-13b-hf|6,7"
+#     "meta-llama/Llama-3.1-8B|0,1"
+# )
 
+JOBS=(
+    "meta-llama/Llama-3.1-8B|6,7"
+)
 MX_BLOCK=32   # MXFP4 group size == rotation block size (same as BRQ)
 
 COMMON_ARGS=(

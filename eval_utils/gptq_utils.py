@@ -21,6 +21,27 @@ import tqdm
 from utils import quant_utils, utils
 
 
+def _check_mx_layout(weight, mx_block, blocksize, groupsize):
+    """Layout GPTQ-MXFP4 relies on. Rotations (Hadamard / random / R1-R4) are fused into
+    the weight BEFORE GPTQ, so the tensor seen here is already [out, in] with `in` the
+    reduction axis -- the axis the MX blocks run along, and the axis the online
+    activation quantizer blocks over."""
+    assert weight.dim() == 2, f"MXFP4 GPTQ expects a 2D [out, in] weight, got {tuple(weight.shape)}"
+    assert blocksize % mx_block == 0, (
+        f"GPTQ blocksize ({blocksize}) must be a multiple of mx_block ({mx_block})"
+    )
+    assert groupsize in (-1, mx_block), (
+        f"--w_groupsize={groupsize} conflicts with MXFP4 (its group is mx_block={mx_block})"
+    )
+
+
+def _mx_kwargs(args, bits):
+    return dict(
+        mxfp4=getattr(args, "mxfp4", False) and bits < 16,
+        mx_block=getattr(args, "mx_block", 32),
+    )
+
+
 class GPTQ:
     def __init__(self, layer):
         self.layer = layer
@@ -61,7 +82,20 @@ class GPTQ:
 
         tick = time.time()
 
-        if not self.quantizer.ready():
+        # MXFP4: E2M1 elements, one shared E8M0 scale per `mx_block` input columns.
+        # The block IS the group, so `groupsize` (INT-style) does not apply.
+        mx = self.quantizer.is_mxfp4()
+        if mx:
+            mx_block = self.quantizer.mx_block
+            _check_mx_layout(self.layer.weight, mx_block, blocksize, groupsize)
+            assert not export_to_et, "export_to_et has no MXFP4 (int_weight/scale) format"
+            if self.columns % mx_block:
+                logging.warning(
+                    "MXFP4 GPTQ: in_features=%d is not a multiple of mx_block=%d; the "
+                    "last block is partial (zero-padded, as in quantize_mx_fp4).",
+                    self.columns, mx_block,
+                )
+        elif not self.quantizer.ready():
             self.quantizer.find_params(W)
 
         H = self.H
@@ -76,6 +110,12 @@ class GPTQ:
                 quantizer = copy.deepcopy(self.quantizer)
                 quantizer.find_params(W[:, i : (i + groupsize)])
                 groups.append(quantizer)
+
+        if mx and actorder:
+            # act-order permutes columns, so a permuted-space run of `mx_block` columns is
+            # NOT a contiguous MX block of the real weight. Fix the block scales up front
+            # on the original layout (GPTQ "static_groups") and look them up per column.
+            mx_static_scales = self.quantizer.mx_block_scales(W)  # [rows, n_blocks]
 
         if actorder:
             perm = torch.argsort(torch.diag(H), descending=True)
@@ -109,6 +149,27 @@ class GPTQ:
             for i in range(count):
                 w = W1[:, i]
                 d = Hinv1[i, i]
+
+                if mx:
+                    if actorder:
+                        w_scale = mx_static_scales[:, perm[i1 + i] // mx_block]
+                    else:
+                        if (i1 + i) % mx_block == 0:
+                            # Dynamic block-wise scale from W1, i.e. the weights AFTER the
+                            # error compensation of all earlier columns of this GPTQ block
+                            # (blocksize % mx_block == 0, so the block never straddles).
+                            mx_scale = self.quantizer.mx_block_scales(
+                                W1[:, i : i + mx_block]
+                            )[:, 0]
+                        w_scale = mx_scale
+                    q = self.quantizer.mx_quantize(w, w_scale)
+                    Q1[:, i] = q
+                    Losses1[:, i] = (w - q) ** 2 / d**2
+
+                    err1 = (w - q) / d
+                    W1[:, i:] -= err1.unsqueeze(1).matmul(Hinv1[i, i:].unsqueeze(0))
+                    Err1[:, i] = err1
+                    continue
 
                 if groupsize != -1:
                     if not static_groups:
@@ -322,6 +383,7 @@ def gptq_fwrd(model, dataloader, dev, args):
                     perchannel=True,
                     sym=layer_weight_sym,
                     mse=args.w_clip,
+                    **_mx_kwargs(args, layer_weight_bits),
                 )
 
             def add_batch(name):
@@ -558,6 +620,7 @@ def gptq_fwrd_distribute(model, dataloader, args, devices=None):
                     perchannel=True,
                     sym=not (args.w_asym),
                     mse=args.w_clip,
+                    **_mx_kwargs(args, layer_weight_bits),
                 )
 
             def add_batch(name):
@@ -662,8 +725,7 @@ def rtn_fwrd(model, dev, args, custom_layers=None):
                 sym=not (args.w_asym),
                 mse=args.w_clip,
                 weight_groupsize=w_groupsize,
-                mxfp4=getattr(args, "mxfp4", False) and layer_weight_bits < 16,
-                mx_block=getattr(args, "mx_block", 32),
+                **_mx_kwargs(args, layer_weight_bits),
             )
             W = subset[name].weight.data
             quantizer.find_params(W)

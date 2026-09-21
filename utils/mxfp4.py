@@ -91,6 +91,24 @@ def _quantize_with_scale(xf, scale):
     return q * scale
 
 
+def mx_block_scales(x, block=32, scale_mode="e8m0"):
+    """Stage 1 alone: shared scale of every ``block`` consecutive elements along the
+    LAST axis of ``x``, [..., H] -> [..., ceil(H/block)]. Zero-padded tail, so it
+    matches ``quantize_mx_fp4`` block for block. Used by GPTQ, which needs the scale
+    (computed on the error-compensated weights) apart from the rounding step."""
+    xf = x.float()
+    pad = (block - xf.shape[-1] % block) % block
+    if pad:
+        xf = torch.nn.functional.pad(xf, (0, pad))
+    amax = xf.reshape(*xf.shape[:-1], -1, block).abs().amax(dim=-1, keepdim=True)
+    return _mx_block_scale(amax, scale_mode).squeeze(-1)
+
+
+def mx_quantize_with_scale(x, scale):
+    """Stage 2 alone: fake-quantize ``x`` to E2M1 with a given (broadcastable) scale."""
+    return _quantize_with_scale(x.float(), scale)
+
+
 def quantize_mx_fp4(x, block=32, axis=-1, scale_mode="e8m0"):
     """Return the MXFP4 fake-quantized version of ``x``.
 

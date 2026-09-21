@@ -5,6 +5,7 @@ from transformers import (
     AutoModelForCausalLM,
     LlamaForCausalLM,
     LlamaTokenizerFast,
+    PreTrainedTokenizerFast,
     AutoTokenizer,
     AutoConfig
 )
@@ -20,9 +21,14 @@ from tqdm import tqdm
 from utils import data_utils
 from utils.process_args import process_args_ptq
 
+def get_input_device(model):
+    # With --distribute the model is sharded over several GPUs; token ids must be fed to the
+    # device that holds embed_tokens (accelerate hooks move activations onward from there).
+    return model.get_input_embeddings().weight.device
+
 def get_act_scales(model, dataloader, num_samples=128):
     model.eval()
-    device = next(model.parameters()).device
+    device = get_input_device(model)
     act_scales = {}
 
     def stat_tensor(name, tensor):
@@ -56,7 +62,7 @@ def get_act_scales(model, dataloader, num_samples=128):
 
 def get_act_shifts(model, dataloader, num_samples=128):
     model.eval()
-    device = next(model.parameters()).device
+    device = get_input_device(model)
     act_shifts = {}
 
     def stat_tensor(name, tensor):
@@ -98,14 +104,29 @@ def main():
         model_args.input_model, token=model_args.access_token
     )
     dtype = torch.bfloat16 if training_args.bf16 else torch.float16
-    model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+
+    # Same placement policy as ptq.py: --distribute shards the model over every visible GPU
+    # (device_map="auto"), otherwise the whole model goes to a single GPU.
+    device_map = "auto" if ptq_args.distribute else None
+    max_memory = None
+    if ptq_args.distribute:
+        # cap each GPU so activations of the 2048-token calibration batch still fit
+        max_memory = {i: "14GiB" for i in range(torch.cuda.device_count())}
+
+    model = LlamaForCausalLM.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
         config=config,
         torch_dtype=dtype,
         token=model_args.access_token,
+        device_map=device_map,
+        max_memory=max_memory,
     )
-    model.cuda()
-    tokenizer = LlamaTokenizerFast.from_pretrained(
+    if not ptq_args.distribute:
+        model.cuda()
+
+    # Llama-3 ships a tiktoken-style tokenizer.json, so it needs the generic fast tokenizer (as in ptq.py)
+    tokenizer_cls = PreTrainedTokenizerFast if 'Llama-3' in model_args.input_model else LlamaTokenizerFast
+    tokenizer = tokenizer_cls.from_pretrained(
         pretrained_model_name_or_path=model_args.input_model,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
@@ -116,18 +137,18 @@ def main():
         token=model_args.access_token,
     )
     ptq_args.net = model_args.input_model.split('/')[-1] # Llama-2-7b-hf
-    dataloader=data_utils.get_wikitext2(tokenizer=tokenizer,eval_mode=False) # dataloader로 값을 읽어온다 [(tokenized.input_ids (shape(1,2048)),(tokenized.answer_labels))]
+    dataloader=data_utils.get_wikitext2(nsamples=ptq_args.nsamples,tokenizer=tokenizer,eval_mode=False) # dataloader로 값을 읽어온다 [(tokenized.input_ids (shape(1,2048)),(tokenized.answer_labels))]
     act_scales = get_act_scales(model, dataloader,ptq_args.nsamples) # act_scales로 값을 읽어온다
     act_shifts = get_act_shifts(model,dataloader,ptq_args.nsamples) # act_shfits 값을 읽어온다
 
     # 읽어들인 값을 저장하는 과정
-    save_path = os.path.join(ptq_args.scales_output_path,f'{ptq_args.net}.pt')
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    scales_path = os.path.join(ptq_args.scales_output_path,f'{ptq_args.net}.pt')
+    os.makedirs(os.path.dirname(scales_path), exist_ok=True)
+    torch.save(act_scales, scales_path)
 
-    save_path = os.path.join(ptq_args.shifts_output_path,f'{ptq_args.net}.pt')
-    os.makedirs(os.path.dirname(save_path),exist_ok=True)
-    
-    torch.save(act_scales, save_path)
+    shifts_path = os.path.join(ptq_args.shifts_output_path,f'{ptq_args.net}.pt')
+    os.makedirs(os.path.dirname(shifts_path),exist_ok=True)
+    torch.save(act_shifts, shifts_path)
 
 if __name__ == '__main__':
     main()

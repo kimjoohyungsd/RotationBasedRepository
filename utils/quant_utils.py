@@ -15,7 +15,7 @@ import transformers
 
 from train_utils.quant_linear import QuantizeLinear
 from utils import hadamard_utils
-from utils.mxfp4 import quantize_mx_fp4
+from utils.mxfp4 import mx_block_scales, mx_quantize_with_scale, quantize_mx_fp4
 from utils.utils import HadamardTransform, cleanup_memory
 
 
@@ -85,6 +85,20 @@ class AsymSTEQuantize(torch.autograd.Function):
         return grad_output, None, None, None
 
 
+class MXFP4STEQuantize(torch.autograd.Function):
+    """MXFP4 fake-quant with a straight-through gradient. quantize_mx_fp4 itself is
+    piecewise constant (bucketize/sign), so without this the gradient through a
+    quantized activation is zero and rotation training would silently stall."""
+
+    @staticmethod
+    def forward(ctx, x, block):
+        return quantize_mx_fp4(x, block=block, axis=-1)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
+
 class ActQuantizer(torch.nn.Module):
     """
     A class for quantizing the activations. We only support (both sym. and asym.) per-token quantization
@@ -108,7 +122,7 @@ class ActQuantizer(torch.nn.Module):
             return x
         if getattr(self, "mxfp4", False):
             # MXFP4: shared E8M0 scale per mx_block elements along the hidden dim.
-            return quantize_mx_fp4(x, block=self.mx_block, axis=-1).to(x_dtype)
+            return MXFP4STEQuantize.apply(x, self.mx_block).to(x_dtype)
         elif self.sym:
             return STEQuantize.apply(x, self.scale, self.maxq).to(x_dtype)
         return AsymSTEQuantize.apply(x, self.scale, self.zero, self.maxq).to(x_dtype)
@@ -551,6 +565,21 @@ class WeightQuantizer(torch.nn.Module):
             return out, q, scale
         else:
             return None, None, None
+
+    # ---- MXFP4 building blocks for GPTQ (same two stages as quantize_mx_fp4) ----
+    def is_mxfp4(self):
+        return getattr(self, "mxfp4", False) and self.bits < 16
+
+    def mx_block_scales(self, w):
+        """Shared E8M0 scale of every mx_block input-columns of ``w`` [out, in], taken from
+        the block abs-max: -> [out, ceil(in / mx_block)]. Block j covers columns
+        [j*mx_block, (j+1)*mx_block) of each row, i.e. the layout an MX GEMM expects
+        along the reduction (input) dim."""
+        return mx_block_scales(w, block=self.mx_block)
+
+    def mx_quantize(self, w, scale):
+        """Round ``w`` to E2M1 under ``scale`` (broadcastable) and dequantize (fp32)."""
+        return mx_quantize_with_scale(w, scale)
 
     def enabled(self):
         return self.maxq > 0

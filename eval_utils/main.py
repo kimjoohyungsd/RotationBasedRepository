@@ -51,7 +51,7 @@ def ptq_model(args, model, log, tokenizer, model_args=None):
     # Smoothing Applied if requested
     if args.smooth_quant:
         args.act_scales = f"./act_scales/{model_args.input_model.split('/')[-1]}.pt"
-        log.info("Smoothing Applied")
+        log.info("Smoothing Applied, alpha: {}, attention: {}".format(args.alpha,args.attention))
         # print(f"smoothing Alpha: {args.alpha}")
         # if args.attention:
         #     print("Smoothing Applied to Attention")
