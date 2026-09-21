@@ -174,6 +174,22 @@ def _get_module_dims(module: torch.nn.Module) -> tuple[int, int]:
     else:
         raise TypeError(f"Unsupported module type: {type(module)}")
     
+def _blockwise_fp64_matmul(temp, hadK, out_dtype, chunk_rows=8192):
+    """temp[..., blocks, had] (x) hadK in float64, computed chunk-by-chunk over the leading
+    dim and cast to out_dtype per chunk. Row-wise independent, so the result is identical to
+    the one-shot fp64 matmul + final cast, but the fp64 temporaries stay small (lm_head /
+    embed_tokens of Qwen3 would otherwise need >10GiB of scratch on one GPU)."""
+    out = torch.empty(temp.shape, dtype=out_dtype, device=temp.device)
+    for i in range(0, temp.shape[0], chunk_rows):
+        t = temp[i:i + chunk_rows].to(torch.float64)
+        if hadK.dim() == 3:
+            r = torch.einsum('ijk, jkl->ijl', t, hadK)
+        else:
+            r = t @ hadK
+        out[i:i + chunk_rows] = r.to(out_dtype)
+    return out
+
+
 def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transpose=False):
     assert isinstance(module, torch.nn.Linear) or isinstance(module,torch.nn.Embedding)
     dim0, dim1 = _get_module_dims(module)
@@ -209,19 +225,13 @@ def apply_exact_had_to_linear(module, had_dim=-1, Dim0=False, Matrix=None,transp
             W_ = W_.t() # Transpose => Shape [input, output]
             transposed_shape = W_.shape # 
             temp = W_.reshape(-1, transposed_shape[-1] // had_dim, had_dim) # Reshape => [input,(output/had_dim=Num_block),had_dim]
-            if hadK.dim() == 3:
-                temp = torch.einsum('ijk, jkl->ijl',temp.to(torch.float64),hadK) # Batched Mat Mul => [dim1,(dim0/had_dim=Num_block),had_dim] @ [Num_block,had_dim,had_dim] = [dim1,Num_block,had_dim]
-            else:
-                temp = temp.to(torch.float64) @ hadK # [dim1,Num_block,Had_dim] @ [Had_dim, Had_dim] => [dim1, Num_block, Had_dim] 
+            temp = _blockwise_fp64_matmul(temp, hadK, dtype) # Batched Mat Mul (fp64, chunked) => [dim1,Num_block,had_dim]
             # print(temp.shape)
             W_ = temp.reshape(transposed_shape).t() # Transposed Shape => [Output, input]
         else:
             init_shape = W_.shape
             temp = W_.reshape(-1, init_shape[-1] // had_dim, had_dim)
-            if hadK.dim() == 3:
-                temp = torch.einsum('ijk, jkl->ijl',temp.to(torch.float64),hadK) # Batched Mat Mul => [dim1,dim0/had_dim,had_dim] @ [Num_block,had_dim,had_dim] = [dim1,Num_block,had_dim]
-            else:
-                temp = temp.to(torch.float64) @ hadK
+            temp = _blockwise_fp64_matmul(temp, hadK, dtype) # Batched Mat Mul (fp64, chunked) => [dim1,Num_block,had_dim]
             # print(temp.shape)
             W_ = temp.reshape(init_shape)
     module.weight.data = W_.to(device=dev, dtype=dtype)

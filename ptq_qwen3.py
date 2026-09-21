@@ -1,3 +1,10 @@
+# coding=utf-8
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import datetime
 from logging import Logger
 
@@ -7,39 +14,100 @@ from transformers import LlamaTokenizerFast,PreTrainedTokenizerFast,AutoTokenize
 import transformers
 import os
 
-from eval_utils.main import ptq_model
-# from eval_utils.modeling_llama import LlamaForCausalLM
-# from eval_utils.modeling_qwen2 import Qwen2ForCausalLM # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+# import lm_eval
+# from lm_eval import evaluator, utils
+# from lm_eval.api.registry import ALL_TASKS
+# import lm_eval.tasks 
+# from lm_eval.utils import setup_logging 
+# from zeroShot.model import SpinquantLMWrapper
 
+from eval_utils.main import ptq_model
+# ptq.py와의 유일한 차이: Qwen3는 q_norm/k_norm을 가진 별도 아키텍처라 Qwen2 클래스로 로드할 수 없으므로
+# eval_utils.modeling_qwen3.Qwen3ForCausalLM을 사용한다. (Llama/Qwen2 클래스는 transformers 4.57 환경에서
+# import 실패를 피하려고 해당 분기에서만 lazy import 한다.)
 from eval_utils.modeling_qwen3 import Qwen3ForCausalLM
-from utils import data_utils, eval_utils, utils, draw_utils
+
+from utils import data_utils, eval_utils, utils, draw_utils, parallel_utils
 from utils.process_args import process_args_ptq
+
+
+def distribution_subdir(ptq_args) -> str:
+    """Name the distribution-plot directory after *every* transform that ran.
+
+    The transforms are not mutually exclusive -- smoothing, permutation, rotation
+    and FPTQuant's Sn can all be applied in the same run -- so the name is a
+    ' + '-joined list in pipeline order (see eval_utils.main.ptq_model), e.g.
+
+        Smoothed (a=0.6) + Rotated (LieReSpinQuant) + Sn
+
+    A run with a single transform keeps the name it had before ("Rotated (SpinQuant)",
+    "Smoothed"), so previously written figure directories are unaffected.
+    """
+    parts = []
+
+    if getattr(ptq_args, "smooth_quant", False):
+        alpha = getattr(ptq_args, "alpha", None)
+        parts.append("Smoothed" if alpha is None else "Smoothed (a={})".format(alpha))
+
+    if getattr(ptq_args, "permute", False):
+        mode = getattr(ptq_args, "permute_mode", None)
+        parts.append("Permuted" if mode is None else "Permuted ({})".format(mode))
+
+    if getattr(ptq_args, "rotate", False):
+        if getattr(ptq_args, "lierespinquant", False):
+            flavor = "LieReSpinQuant r={}".format(getattr(ptq_args, "lie_rank", 32))
+        elif getattr(ptq_args, "respinquant", False):
+            rank = getattr(ptq_args, "residual_rank", 32)
+            flavor = "ReSpinQuant r={}".format(rank)
+        elif getattr(ptq_args, "optimized_rotation_path", None):
+            flavor = "SpinQuant"
+        else:
+            flavor = getattr(ptq_args, "rotate_mode", "hadamard")
+        parts.append("Rotated ({})".format(flavor))
+
+    if getattr(ptq_args, "dynamic_residual_scaling", False):
+        parts.append("Sn")
+
+    return " + ".join(parts) if parts else "Baseline"
+
 
 from datasets import load_dataset
 
-from utils.process_args import process_args_ptq
+
+
 
 def train() -> None:
+    # dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=100)) # initializes the default distributed process group and Communication backend: NCCL 
     model_args, training_args, ptq_args = process_args_ptq()
+
+    # ptq_args.eval_out_path = os.path.join(ptq_args.eval_out_path,f"{}")
     log: Logger = utils.get_logger("spinquant",ptq_args.eval_out_path)
 
+    # Setup wandb (only once, before anything heavy runs so the config is recorded even if eval crashes)
     wandb_run = utils.setup_wandb(model_args.input_model, ptq_args)
     if wandb_run is not None:
         log.info("wandb run: {} ({})".format(wandb_run.name, wandb_run.url))
-    config = transformers.AutoConfig.from_pretrained( 
+
+    config = transformers.AutoConfig.from_pretrained(
         model_args.input_model, token=model_args.access_token
     )
-    # Llama v3.2 specific: Spinquant is not compatiable with tie_word_embeddings, clone lm_head from embed_tokens
-    process_word_embeddings = False
-    if config.tie_word_embeddings:
-        config.tie_word_embeddings = False
-        process_word_embeddings = True
+    # SpinQuant is not compatible with tied word embeddings: lm_head has to be an
+    # independent weight so R1 / fuse_layer_norms can transform it on its own. The
+    # untie is done AFTER from_pretrained (see below) -- flipping
+    # config.tie_word_embeddings to False *before* the load turns lm_head.weight
+    # into a key with no entry in a tied checkpoint, which low_cpu_mem_usage /
+    # device_map then leaves stranded on the 'meta' device.
+    process_word_embeddings = bool(config.tie_word_embeddings)
     dtype = torch.bfloat16 if training_args.bf16 or config.torch_dtype==torch.bfloat16 else torch.float16
     if ptq_args.draw:
         dtype = torch.float16
 
+    # if ptq_args.dynamic_residual_scaling:
+    #     dtype = torch.float32
+
     device_map = "auto" if ptq_args.distribute else None
     n_gpus = torch.cuda.device_count()
+
 
     # 0번 GPU에는 파라미터를 적게(예: 16GB), 나머지는 넉넉히(예: 22GB) 할당
     # 70B 모델은 전체 약 140GB(FP16) / 35GB(W4)이므로 이에 맞춰 분배
@@ -47,7 +115,9 @@ def train() -> None:
     if ptq_args.distribute:
         n_gpus = torch.cuda.device_count()
         # 0번 GPU는 Activation 공간 확보를 위해 적게 할당
-        max_memory[0] = "17GiB" 
+        # (Qwen3-14B bf16 = 약 27.5GiB 라서 ptq.py의 14GiB/GPU로는 3090 2장에 담기지 않아
+        #  기존 ptq_qwen3.py의 17/18GiB 설정을 유지한다)
+        max_memory[0] = os.environ.get("RBR_GPU0_MEM", "17GiB")  # 모델 배치만 바꾸는 용도(PPL 불변)
         for i in range(1, n_gpus):
             # 나머지 GPU는 모델 파라미터를 담기 위해 더 넉넉히 할당 (예: 24GB 카드 기준)
             max_memory[i] = "18GiB" 
@@ -55,20 +125,47 @@ def train() -> None:
         max_memory = None # 분산 모드가 아닐 때는 None 전달
 
     model_args.net= model_args.input_model.split('/')[-1]
-    if 'Qwen3' in model_args.net:
-        model = Qwen3ForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+    if 'Llama' in model_args.net:
+        from eval_utils.modeling_llama import LlamaForCausalLM
+        model = LlamaForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
             pretrained_model_name_or_path=model_args.input_model,
             config=config,
             torch_dtype=dtype,
             token=model_args.access_token,
-            device_map=device_map
+            device_map=device_map,
+            max_memory=max_memory
+        )
+    elif 'Qwen3' in model_args.net:
+        model = Qwen3ForCausalLM.from_pretrained(
+            pretrained_model_name_or_path=model_args.input_model,
+            config=config,
+            torch_dtype=dtype,
+            token=model_args.access_token,
+            device_map=device_map,
+            max_memory=max_memory
+        )
+    elif 'Qwen' in model_args.net:
+        from eval_utils.modeling_qwen2 import Qwen2ForCausalLM
+        model = Qwen2ForCausalLM.from_pretrained( # 왜 Eval_utils에서 modeling_llama 파일을 overwrite 했을까?
+            pretrained_model_name_or_path=model_args.input_model,
+            config=config,
+            torch_dtype=dtype,
+            token=model_args.access_token,
+            device_map=device_map,
+            max_memory=max_memory
         )
 
     if process_word_embeddings:
         model.lm_head.weight.data = model.model.embed_tokens.weight.data.clone()
 
-    if not ptq_args.distribute:
+
+    # --gptq_cpu_offload keeps the model on CPU: gptq_fwrd_distribute streams one layer
+    # at a time to a GPU, so the full 70B model must NOT be pinned to a single GPU here.
+    if not ptq_args.distribute and not getattr(ptq_args, "gptq_cpu_offload", False):
         model.cuda() # 모델을 GPU로 옮긴다
+    elif getattr(ptq_args, "gptq_cpu_offload", False):
+        assert not ptq_args.distribute, "--gptq_cpu_offload is incompatible with --distribute (device_map)."
+        log.info("gptq_cpu_offload: model kept on CPU; layers streamed to GPU during GPTQ.")
 
     if (ptq_args.rotate):
         log.info("Rotation applied")
@@ -84,8 +181,20 @@ def train() -> None:
     
     if ptq_args.per_column:
         log.info("Quantization is done on column wise manner")
-
-    tokenizer = AutoTokenizer.from_pretrained(
+        
+    if 'Llama-3' in model_args.input_model:
+        tokenizer = PreTrainedTokenizerFast.from_pretrained(
+        pretrained_model_name_or_path=model_args.input_model,
+        cache_dir=training_args.cache_dir,
+        model_max_length=training_args.model_max_length,
+        padding_side="right",
+        use_fast=True,
+        add_eos_token=False,
+        add_bos_token=False,
+        token=model_args.access_token,
+        )
+    elif 'Qwen' in model_args.input_model:
+        tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=model_args.input_model,
             cache_dir=training_args.cache_dir,
             model_max_length=training_args.model_max_length,
@@ -95,12 +204,25 @@ def train() -> None:
             add_bos_token=False,
             token=model_args.access_token,
         )
-    
-    model = ptq_model(ptq_args, model, log, tokenizer,model_args) # 
-    model.seqlen = training_args.model_max_length
-
+    else:
+        tokenizer = LlamaTokenizerFast.from_pretrained(
+            pretrained_model_name_or_path=model_args.input_model,
+            cache_dir=training_args.cache_dir,
+            model_max_length=training_args.model_max_length,
+            padding_side="right",
+            use_fast=True,
+            add_eos_token=False,
+            add_bos_token=False,
+            token=model_args.access_token,
+        )
     log.info("Complete tokenizer loading...")
 
+    model = ptq_model(ptq_args, model, log, tokenizer, model_args) # 
+    model.seqlen = training_args.model_max_length
+
+    # if ptq_args.distribute and not ptq_args.w_rtn:
+
+    
     results = {}
     if ptq_args.wikitext2 or ptq_args.draw:
         model.config.use_cache = False
@@ -115,6 +237,9 @@ def train() -> None:
             dataset_ppl = eval_utils.evaluator(model, testloader, utils.DEV, ptq_args)
             log.info("wiki2 ppl is: {}".format(dataset_ppl))
             results['wiki2_ppl'] = dataset_ppl
+            if wandb_run is not None:
+                wandb_run.log({"wiki2_ppl": dataset_ppl})
+                wandb_run.summary["wiki2_ppl"] = dataset_ppl
 
         if ptq_args.draw:
             if ptq_args.distribution_dir is None:
@@ -122,14 +247,8 @@ def train() -> None:
 
             os.makedirs(ptq_args.distribution_dir, exist_ok=True)
 
-            save_path = ptq_args.distribution_dir
-            if ptq_args.rotate:
-                if ptq_args.optimized_rotation_path:
-                    save_path = os.path.join(save_path,"Rotated (SpinQuant)")
-                else:
-                    save_path = os.path.join(save_path,"Rotated ({})".format(ptq_args.rotate_mode))
-            elif ptq_args.smooth_quant:
-                save_path = os.path.join(save_path,"Smoothed")
+            save_path = os.path.join(
+                ptq_args.distribution_dir, distribution_subdir(ptq_args))
 
             if ptq_args.weight_check:
 
@@ -143,6 +262,20 @@ def train() -> None:
                 act_path = os.path.join(save_path,"Act")
                 draw_utils.draw_activations(model,act_path,ptq_args,testloader)
 
+            if ptq_args.residual_norm_check:
+                res_path = os.path.join(save_path,"ResidualNorm")
+                draw_utils.draw_residual_norms(model,res_path,ptq_args,testloader)
+
+            if ptq_args.norm_check:
+                # Saved at figures/<net>/Normalization (not under the transform subdir).
+                norm_path = os.path.join(ptq_args.distribution_dir, "Normalization")
+                draw_utils.draw_norm_distributions(model, norm_path, ptq_args)
+
+            if ptq_args.norm_prepost_check:
+                # figures/<net>/Normalization_PrePost/{Kurtosis, Box Plot, 3d plot}/
+                prepost_path = os.path.join(ptq_args.distribution_dir, "Normalization_PrePost")
+                draw_utils.draw_norm_prepost(model, prepost_path, ptq_args, testloader)
+
 
         # dist.barrier()
 
@@ -154,22 +287,48 @@ def train() -> None:
 
         if not ptq_args.distribute:
             model.cuda() # 모델을 GPU로 옮긴다
-        hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size=ptq_args.lm_eval_batch_size)
+        hflm = HFLM(pretrained=model, tokenizer=tokenizer, batch_size="auto",max_batch_size=ptq_args.lm_eval_batch_size)
 
         task_names = ptq_args.tasks
 
-        
+        metric_vals = {}
         for task_name in task_names:
+            hflm.batch_sizes = {}   # 캐시 리셋
             log.info(f"Evaluating {task_name}...")
-            result = lm_eval.simple_evaluate(hflm, tasks=[task_name], batch_size=ptq_args.lm_eval_batch_size)['results']
+            result = lm_eval.simple_evaluate(hflm, tasks=[task_name])['results']
             result = result[task_name]
             acc = round(result.get('acc_norm,none', result['acc,none']) * 100, 2)
             results[task_name] = acc
+            metric_vals[task_name] = acc
             log.info(f"acc: {acc}%")
-        metric_vals = {task: result for task, result in results.items()}
-        metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
+            # task 하나 끝날 때마다 올려서 중간에 죽어도 결과가 남도록
+            if wandb_run is not None:
+                wandb_run.log({task_name: acc})
+                wandb_run.summary[task_name] = acc
+
+        if metric_vals:
+            metric_vals['acc_avg'] = round(sum(metric_vals.values()) / len(metric_vals.values()), 2)
+            results['acc_avg'] = metric_vals['acc_avg']
         log.info(metric_vals)
         log.info(results)
+        if wandb_run is not None and metric_vals:
+            wandb_run.log({"acc_avg": metric_vals['acc_avg']})
+            wandb_run.summary["acc_avg"] = metric_vals['acc_avg']
+    else:
+        log.info("Skipping LM_eval task")
+
+    if wandb_run is not None:
+        import wandb
+        # runs 테이블에 한 번에 보이도록 최종 결과를 summary로 정리
+        wandb_run.summary.update(results)
+        # 결과 테이블(여러 run 비교용)
+        if results:
+            table = wandb.Table(
+                columns=["metric", "value"],
+                data=[[k, v] for k, v in results.items()],
+            )
+            wandb_run.log({"results": table})
+        wandb_run.finish()
 
 if __name__ == "__main__":
     train()
