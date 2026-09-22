@@ -13,7 +13,7 @@ import re
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 LOGS = os.path.join(REPO, "logs", "MXFP4")
 MODELS = [
-    "Llama-2-7b-hf", "Llama-2-13b-hf", "Meta-Llama-3-8B", "Qwen3-8B", "Qwen3-14B",
+    "Llama-2-7b-hf", "Llama-2-13b-hf", "Llama-3.1-8B", "Qwen3-8B", "Qwen3-14B",
 ]
 PPL_RE = re.compile(r"wiki2 ppl is: ([0-9.eE+-]+)")
 

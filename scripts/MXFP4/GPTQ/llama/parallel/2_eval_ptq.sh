@@ -3,7 +3,7 @@
 # Runs the three Llama models concurrently, each model_parallel-distributed over its own GPUs:
 #   Llama-2-7b   -> GPU 0,1
 #   Llama-2-13b  -> GPU 2,3,4
-#   Llama-3-8B   -> GPU 5,6
+#   Llama-3.1-8B -> GPU 5,6
 # Every model uses the identical recipe (MXFP4 block 32 for W and A; weights quantized by GPTQ with
 # MXFP4 grid, i.e. no --w_rtn). Same as RTN except that the weight rounding is Hessian-aware.
 # Logs: logs/MXFP4/GPTQ/<model_name>/
@@ -26,7 +26,7 @@ trap cleanup SIGINT
 JOBS=(
     "meta-llama/Llama-2-7b-hf|0,1"
     "meta-llama/Llama-2-13b-hf|2,3,4"
-    "meta-llama/Meta-Llama-3-8B|5,6"
+    "meta-llama/Llama-3.1-8B|5,6"
 )
 
 # ONLY="Llama-2" (regex on the HF model id) restricts the run to the matching JOBS

@@ -6,7 +6,7 @@
 # Logs: logs/MXFP4/RTN/<model_name>/
 
 REPO="/home/jhkcool97/RotationBasedRepository"
-PY="${PY:-/home/jhkcool97/anaconda3/envs/rbr_qwen3/bin/python}"
+PY="${PY:-python}"
 cd "$REPO" || exit 1
 
 cleanup() {

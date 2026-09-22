@@ -6,26 +6,14 @@
 # Models run one after another, each model_parallel-distributed (--distribute) over CUDA_DEVICES.
 # Logs: logs/MXFP4/GPTQ/<model_name>/
 #
-# !! Qwen3 needs its OWN environment: pip install -r requirement_qwen3.txt (transformers==4.57.0,
-# !! accelerate==1.1.0, lm-eval==0.4.5, peft==0.13.2). The default requirement.txt (transformers 4.44.2)
-# !! has no Qwen3 architecture. Point PY at that env's python (checked below).
+# !! Qwen3 needs the packages of requirement_qwen3.txt (transformers==4.57.0, accelerate==1.1.0,
+# !! lm-eval==0.4.5, peft==0.13.2) installed in the python used here (override with PY=...).
 #
 # Env overrides: PY, CUDA_DEVICES, NSAMPLES, PERCDAMP, ACT_ORDER=1
 
 REPO="/home/jhkcool97/RotationBasedRepository"
-PY="${PY:-/home/jhkcool97/miniconda3/envs/rbr_qwen3/bin/python}"
+PY="${PY:-python}"
 cd "$REPO" || exit 1
-
-# --- requirement_qwen3.txt environment check ---
-if ! QWEN_TF=$($PY -c "import transformers; print(transformers.__version__)" 2>/dev/null); then
-    echo "[ERROR] '$PY' is missing or has no transformers. Create the Qwen3 env first:"
-    echo "        conda create -n rbr_qwen3 python=3.11 && pip install torch && pip install -r ${REPO}/requirement_qwen3.txt"
-    exit 2
-fi
-if [ "$QWEN_TF" != "4.57.0" ]; then
-    echo "[ERROR] transformers==${QWEN_TF} in '$PY'; Qwen3 needs 4.57.0 (requirement_qwen3.txt)."
-    exit 2
-fi
 
 cleanup() {
     echo ""

@@ -25,7 +25,7 @@ trap cleanup SIGINT
 JOBS=(
     "meta-llama/Llama-2-7b-hf|0,1"
     "meta-llama/Llama-2-13b-hf|2,3,4"
-    "meta-llama/Meta-Llama-3-8B|5,6"
+    "meta-llama/Llama-3.1-8B|5,6"
 )
 
 # ONLY="Llama-2" (regex on the HF model id) restricts the run to the matching JOBS
